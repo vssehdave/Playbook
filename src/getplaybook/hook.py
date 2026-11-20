@@ -4,6 +4,7 @@ refuse a step done by hand that an offered playbook set to enforce covers (PreTo
 Each reads the hook's JSON from stdin and returns the text to print: hook JSON adding `additionalContext`, or "". Nothing
 here raises: any error means no offer. They do nothing at all when a host that places offers itself launched Claude Code.
 """
+import contextlib
 import hashlib
 import json
 import os
@@ -17,6 +18,8 @@ from .text import CONTINUE, handwritten, person_text
 
 KEEP_SESSIONS = 50  # sessions remembered in sessions.json
 KEEP_DAYS = 7
+LOCK_STALE = 10  # seconds after which a left-over sessions.lock is someone's crash, not a writer
+LOCK_WAIT = 1.0  # seconds a hook waits for the lock before it gives up saving
 FREE = frozenset(("edit", "inspect"))  # phases never refused: reading and editing are how a failed run gets fixed
 
 
@@ -42,16 +45,45 @@ def _load() -> dict:
     return data if isinstance(data, dict) else {}
 
 
+@contextlib.contextmanager
+def _locked():
+    """Yields True while this process holds sessions.lock (created with O_EXCL, so one holder on every platform), else False."""
+    lock, held, until = _file().with_suffix(".lock"), False, time.time() + LOCK_WAIT
+    while not held:
+        try:
+            os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            held = True
+        except FileExistsError:
+            with contextlib.suppress(OSError):
+                if time.time() - lock.stat().st_mtime > LOCK_STALE:
+                    lock.unlink()
+                    continue
+            if time.time() > until:
+                break
+            time.sleep(0.02)
+        except OSError:
+            break
+    try:
+        yield held
+    finally:
+        if held:
+            with contextlib.suppress(OSError):
+                lock.unlink()
+
+
 def _save(key, entry):
-    """Store one session's entry, keeping the newest sessions only. shortcut: a plain replace, not a lock: two hooks in one
-    instant may lose one's note, and the cost is an offer made twice; upgrade if that ever shows."""
-    data = _load()
-    data[key] = entry
-    cut = time.time() - KEEP_DAYS * 86400
-    keep = sorted(((k, v) for k, v in data.items() if isinstance(v, dict) and v.get("t", 0) >= cut), key=lambda kv: -kv[1].get("t", 0))
-    tmp = _file().with_suffix(".tmp")
-    tmp.write_text(json.dumps(dict(keep[:KEEP_SESSIONS])), encoding="utf-8")
-    os.replace(tmp, _file())
+    """Store one session's entry: load, change and replace the file under the lock, keeping the newest sessions only. Without
+    the lock nothing is saved; the cost is an offer made twice."""
+    with _locked() as held:
+        if not held:
+            return
+        data = _load()
+        data[key] = entry
+        cut = time.time() - KEEP_DAYS * 86400
+        keep = sorted(((k, v) for k, v in data.items() if isinstance(v, dict) and v.get("t", 0) >= cut), key=lambda kv: -kv[1].get("t", 0))
+        tmp = _file().with_suffix(".tmp")
+        tmp.write_text(json.dumps(dict(keep[:KEEP_SESSIONS])), encoding="utf-8")
+        os.replace(tmp, _file())
 
 
 def _out(event, text) -> str:

@@ -29,8 +29,9 @@ def _print(text):
 def _parser():
     parser = argparse.ArgumentParser(prog=config.CLI, usage=USAGE)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("list", "path", "work", "mcp"):
+    for name in ("list", "path", "work"):
         sub.add_parser(name)
+    sub.add_parser("mcp").add_argument("--plugin", action="store_true", help="started by the plugin: list no tools under a host that lists them")
     mining = sub.add_parser("mine")
     mining.add_argument("--days", type=int, default=30)
     mining.add_argument("--min", type=int, default=3, dest="minimum")
@@ -72,7 +73,7 @@ def main(argv=None) -> int:
     if args.cmd == "mcp":
         from . import mcp
 
-        return mcp.serve()
+        return mcp.serve(plugin=args.plugin)
     if args.cmd in ("mine", "compile", "work"):
         from . import build, mine
 

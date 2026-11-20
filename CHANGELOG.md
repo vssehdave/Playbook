@@ -12,6 +12,10 @@
   `enforce` setting turns it off.
 - `auto` in plain Claude Code: the UserPromptSubmit hook runs an automatic script itself when the request matches it
   strongly (setting `auto_run`) and gives Claude the result instead of the note. Its timeout is now 120 seconds.
+- The plugin's MCP server (`playbook mcp --plugin`) lists no tools when `ALMANAC_PROXY` is set, since that host lists
+  them itself and they showed twice.
+- `sessions.json` is changed under a lock (`sessions.lock`, created exclusively, stale after 10 seconds), so two hooks at
+  once no longer drop each other's entries; a hook that cannot get the lock within a second skips saving.
 
 ## 0.1.0
 

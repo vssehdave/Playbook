@@ -1,7 +1,9 @@
 import io
 import json
+import os
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from helpers import playbook
 from test_store import SCRIPT, Home, make
@@ -55,10 +57,16 @@ class McpTest(Home):
         (Path(self.home) / "config.json").write_text(json.dumps({"playbooks": {"enabled": False}}), encoding="utf-8")
         self.assertEqual(mcp.listed(), [])
 
+    def test_the_plugin_server_lists_nothing_under_a_host_that_lists_the_tools(self):
+        with mock.patch.dict(os.environ, {"ALMANAC_PROXY": "1"}):
+            self.assertEqual(mcp.listed(plugin=True), [])
+            self.assertEqual(len(mcp.listed()), 3)  # the host's own entry
+        self.assertEqual(len(mcp.listed(plugin=True)), 3)
+
     def test_the_plugin_declares_the_server_and_the_hooks(self):
         root = Path(__file__).parent.parent
         plugin = json.loads((root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-        self.assertEqual(plugin["mcpServers"]["playbook"]["args"], ["mcp"])
+        self.assertEqual(plugin["mcpServers"]["playbook"]["args"], ["mcp", "--plugin"])
         hooks = json.loads((root / plugin["hooks"][0]).read_text(encoding="utf-8"))["hooks"]
         self.assertEqual(sorted(hooks), ["PostToolUse", "PreToolUse", "UserPromptSubmit"])
         self.assertEqual(hooks["PostToolUse"][0]["hooks"][0]["command"], "playbook hook post-tool-use")

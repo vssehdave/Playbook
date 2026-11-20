@@ -4,6 +4,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -219,6 +221,25 @@ class WordsHookTest(Home):
         self.assertIn("sent-42", text)
         (Path(self.home) / "config.json").write_text(json.dumps({"playbooks": {"auto_run": False}}), encoding="utf-8")
         self.assertIn("matches this request", self.prompt("please send the weekly report for the team"))
+
+
+class SessionsLockTest(Home):
+    def test_a_held_lock_skips_the_save_a_stale_one_is_taken_and_writers_do_not_lose_entries(self):
+        lock = Path(self.home) / "sessions.lock"
+        lock.write_text("", encoding="utf-8")
+        with mock.patch.object(hook, "LOCK_WAIT", 0.1):
+            hook._save("a:main", {"t": time.time()})
+        self.assertEqual(hook._load(), {})
+        os.utime(lock, (time.time() - 60, time.time() - 60))
+        hook._save("a:main", {"t": time.time()})
+        self.assertIn("a:main", hook._load())
+        self.assertFalse(lock.exists())
+        writers = [threading.Thread(target=hook._save, args=(f"s{i}:main", {"t": time.time()})) for i in range(8)]
+        for w in writers:
+            w.start()
+        for w in writers:
+            w.join()
+        self.assertEqual(len(hook._load()), 9)
 
 
 if __name__ == "__main__":
