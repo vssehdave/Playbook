@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- Offer modes, chosen when approving: `playbook approve NAME --mode suggest|enforce|auto` (`--auto` stays as
+  `--mode auto`). The mode is signed with the command line's key in `auto.json` together with the script's hash, so
+  editing `playbook.json` or the entry cannot change it; entries written before modes still read as `auto`.
+  `list` and `show` print the mode.
+- `enforce`: a new PreToolUse hook (`playbook hook pre-tool-use`) refuses a tool call that does a step of the route of a
+  playbook offered in this turn, and tells Claude to call `playbook_run` instead. Reading, editing and the playbook tools
+  are never refused, and once a run of that playbook does not pass in the turn, the steps are Claude's again. The
+  `enforce` setting turns it off.
+- `auto` in plain Claude Code: the UserPromptSubmit hook runs an automatic script itself when the request matches it
+  strongly (setting `auto_run`) and gives Claude the result instead of the note. Its timeout is now 120 seconds.
+
 ## 0.1.0
 
 First release. Playbook is the playbook feature of a Claude Code proxy, split out so it works on its own, as a Python

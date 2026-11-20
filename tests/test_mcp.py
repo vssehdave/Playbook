@@ -60,7 +60,7 @@ class McpTest(Home):
         plugin = json.loads((root / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
         self.assertEqual(plugin["mcpServers"]["playbook"]["args"], ["mcp"])
         hooks = json.loads((root / plugin["hooks"][0]).read_text(encoding="utf-8"))["hooks"]
-        self.assertEqual(sorted(hooks), ["PostToolUse", "UserPromptSubmit"])
+        self.assertEqual(sorted(hooks), ["PostToolUse", "PreToolUse", "UserPromptSubmit"])
         self.assertEqual(hooks["PostToolUse"][0]["hooks"][0]["command"], "playbook hook post-tool-use")
 
 

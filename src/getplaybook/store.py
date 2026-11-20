@@ -24,6 +24,7 @@ SCRIPT_LIMIT = 200 * 1024
 MAX_STEPS = 30
 SOURCES = ("claude", "miner", "owner")
 STATUSES = ("draft", "approved")
+MODES = ("suggest", "enforce", "auto")
 
 
 def root() -> Path:
@@ -159,7 +160,7 @@ def runnable(pb) -> bool:
 
 
 def auto_file() -> Path:
-    """The owner's approvals for automatic running: {name: script hash}. Written only by the CLI, never inside a playbook folder."""
+    """The owner's approvals for enforce and auto: {name: "<script hash>:<mode>:<signature>"}. Written only by the CLI, never inside a playbook folder."""
     return config.home() / "auto.json"
 
 
@@ -175,8 +176,10 @@ def _auto_key(make=False):
     return key if key and len(key) >= 32 else None
 
 
-def _auto_sign(name, digest, key) -> str:
-    return digest + ":" + hmac.new(key, f"{name}\0{digest}".encode("utf-8"), hashlib.sha256).hexdigest()
+def _auto_mac(name, digest, mode, key) -> str:
+    """The signature over name, hash and mode; an entry from before modes (`<hash>:<signature>`) signed name and hash only."""
+    text = f"{name}\0{digest}" + (f"\0{mode}" if mode else "")
+    return hmac.new(key, text.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
 def _auto_read() -> dict:
@@ -188,10 +191,11 @@ def _auto_read() -> dict:
     return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str)} if isinstance(data, dict) else {}
 
 
-def _auto_set(name, digest=None):
+def _auto_set(name, digest=None, mode="auto"):
+    """Sign the owner's approval of `mode` for the script with this hash (empty for a playbook without a script); no hash removes it."""
     data = _auto_read()
-    if digest:
-        data[name] = _auto_sign(name, digest, _auto_key(make=True))
+    if digest is not None:
+        data[name] = f"{digest}:{mode}:{_auto_mac(name, digest, mode, _auto_key(make=True))}"
     elif name in data:
         del data[name]
     else:
@@ -200,19 +204,39 @@ def _auto_set(name, digest=None):
     auto_file().write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
+def _signed(pb) -> str:
+    """The mode the owner's signed entry gives this playbook's current hash: "enforce", "auto" or "" (none, forged or for other text)."""
+    key, parts = _auto_key(), _auto_read().get(pb["name"], "").split(":")
+    if not key or len(parts) not in (2, 3):
+        return ""
+    legacy = len(parts) == 2
+    digest, mode, mac = (parts[0], "auto", parts[1]) if legacy else parts
+    ok = hmac.compare_digest(mac, _auto_mac(pb["name"], digest, "" if legacy else mode, key))
+    return mode if ok and digest == pb["hash"] and mode in ("enforce", "auto") else ""
+
+
+def mode(pb) -> str:
+    """How the playbook is offered, from the owner's signed entry only: "suggest" (a note), "enforce" (hand-run steps it covers
+    are refused) or "auto" (a host runs it before the model sees the request). Anything unsigned, changed or no longer
+    valid for its mode (not approved, script edited, auto with arguments) is "suggest"."""
+    signed = _signed(pb)
+    if pb["status"] != "approved":
+        return "suggest"
+    if signed == "auto" and pb["auto"] and not pb["args"] and runnable(pb):
+        return "auto"
+    return "enforce" if signed == "enforce" and (runnable(pb) or (pb["includes"] and not pb["script"])) else "suggest"
+
+
 def automatic(pb) -> bool:
-    """Would the host run this script by itself now: marked auto, no args, still approved, and the owner's entry names this exact script."""
-    if not (pb["auto"] and not pb["args"] and runnable(pb)):
-        return False
-    key = _auto_key()
-    return bool(key) and hmac.compare_digest(_auto_read().get(pb["name"], ""), _auto_sign(pb["name"], pb["hash"], key))
+    """Would the host run this script by itself now: signed as auto, no args, still approved, and the entry names this exact script."""
+    return mode(pb) == "auto"
 
 
 def shown_status(pb) -> str:
-    """The status for `list` and `show`: a script edited after approval is a draft again, and only a live automatic one says auto."""
+    """The status for `list` and `show`: a script edited after approval is a draft again, and only a live enforce or auto one says so."""
     if pb["script"] and pb["status"] == "approved" and not runnable(pb):
         return "draft (script changed)"
-    return pb["status"] + (", auto" if automatic(pb) else "")
+    return pb["status"] + (f", {mode(pb)}" if mode(pb) != "suggest" else "")
 
 
 def _no_link(*paths):
@@ -236,7 +260,7 @@ def save(data, script=None):
 
     status, hash, auto, uses and created are not taken from the caller: what the model or the miner
     saves is a draft until the owner approves it, a script is approved only while its text is the one the owner approved, and a saved
-    playbook is never automatic: only `playbook approve --auto` makes it so, so a save also
+    playbook is never automatic: only `playbook approve --mode auto` makes it so, so a save also
     drops the owner's automatic entry.
     """
     if not isinstance(data, dict) or not valid_name(data.get("name")):
@@ -264,25 +288,31 @@ def save(data, script=None):
     return pb
 
 
-def approve(name, auto=False):
-    """Record the hash of run.py as it is now; `auto` also lets the host run it before the model sees a request. Returns (hash, text of run.py)."""
+def approve(name, mode="suggest", auto=False):
+    """Record the hash of run.py as it is now, and how the playbook is offered (see `mode`): `enforce` also refuses hand-run
+    steps it covers, `auto` lets the host run it before the model sees a request. The mode is signed with the CLI's key,
+    not stored in the playbook. `auto=True` is the older way to say mode "auto". Returns (hash, text of run.py)."""
+    mode = "auto" if auto else mode
+    if mode not in MODES:
+        raise ValueError(f"mode is one of {', '.join(MODES)}")
     pb = load(name)
     if pb is None:
         raise ValueError(f"no usable playbook called {name!r}")
     if not pb["script"]:
-        if auto:
-            raise ValueError(f"--auto is refused: {name} has no script")
-        pb["status"] = "approved"
+        if mode == "auto" or (mode == "enforce" and not pb["includes"]):
+            raise ValueError(f"mode {mode} is refused: {name} has no script" + (" and includes nothing to run" if mode == "enforce" else ""))
+        pb["status"], pb["auto"] = "approved", False
         _write(pb)
+        _auto_set(name, "" if mode == "enforce" else None, mode)
         return "", ""
-    if auto and pb["args"]:
-        raise ValueError(f"--auto is refused: {name} takes arguments, and a script that needs inputs cannot run from the words of a request")
-    if auto and not any(len(WORD.findall(t)) >= 2 for t in pb["triggers"]):
-        raise ValueError(f"--auto is refused: {name} has no trigger of two or more words, and one word is too little to start a script")
+    if mode == "auto" and pb["args"]:
+        raise ValueError(f"mode auto is refused: {name} takes arguments, and a script that needs inputs cannot run from the words of a request")
+    if mode == "auto" and not any(len(WORD.findall(t)) >= 2 for t in pb["triggers"]):
+        raise ValueError(f"mode auto is refused: {name} has no trigger of two or more words, and one word is too little to start a script")
     raw = _read(script_path(name), SCRIPT_LIMIT)
-    pb["status"], pb["hash"], pb["auto"] = "approved", hashlib.sha256(raw).hexdigest(), bool(auto)
+    pb["status"], pb["hash"], pb["auto"] = "approved", hashlib.sha256(raw).hexdigest(), mode == "auto"
     _write(pb)
-    _auto_set(name, pb["hash"] if auto else None)
+    _auto_set(name, pb["hash"] if mode != "suggest" else None, mode)
     return pb["hash"], raw.decode("utf-8", "replace")
 
 

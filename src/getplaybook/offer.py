@@ -10,7 +10,7 @@ from pathlib import Path
 from . import config
 from .run import AUTO_OUTPUT, inner_names
 from .steps import block_phases
-from .store import SHIPS, WORD, listing, route_of, runnable, script_path
+from .store import SHIPS, WORD, listing, mode, route_of, runnable, script_path
 from .text import blocks
 
 NOTE_LIMIT = 1500
@@ -107,6 +107,9 @@ def ran_note(pb, head, out, err) -> str:
     return text
 
 
+_ENFORCED = "{name} is set to enforce: the steps it covers are refused when done by hand, until it has run and failed.\n"
+
+
 def note(pb) -> str:
     """The reminder added to the request, at most NOTE_LIMIT characters."""
     uses = pb["uses"]
@@ -119,7 +122,7 @@ def note(pb) -> str:
     if pb["script"]:
         extra.append(_script_line(pb))
     tail = ("Follow it unless this request differs. If you change the approach or finish a task that will come up again, "
-            "record it with `playbook_save`.\n</system-reminder>")
+            "record it with `playbook_save`.\n" + _ENFORCED.format(name=pb["name"]) * (mode(pb) == "enforce") + "</system-reminder>")
     fixed = head + "".join(extra) + tail
     text = head + _step_lines(pb, NOTE_LIMIT - len(fixed) - 8) + "".join(extra) + tail
     if len(text) > NOTE_LIMIT:  # a very long title or when: keep the closing tag and cut inside
@@ -136,7 +139,8 @@ def offer(pb) -> str:
         how = f'call playbook_run {{"name": "{name}", "args": [{given}]}}{spec}'
     else:
         how = f'read its steps with playbook_find {{"query": "{name}"}}'
-    return f'<system-reminder>\n{config.NAME}: playbook "{name}" covers the rest of this: {_untag(how)}\n</system-reminder>'
+    return (f'<system-reminder>\n{config.NAME}: playbook "{name}" covers the rest of this: {_untag(how)}\n'
+            + _ENFORCED.format(name=name) * (mode(pb) == "enforce") + "</system-reminder>")
 
 
 # ---- route signals -------------------------------------------------------------------------------
