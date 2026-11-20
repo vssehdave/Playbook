@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "getplaybook"
+version = "0.1.0"
+description = "Turns work you repeat with Claude Code into deterministic steps: playbooks, offered from what Claude is doing (stdlib only)."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Veertej Sehdave" }]
+keywords = ["claude-code", "automation", "playbook", "developer-tools"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/vssehdave/Playbook"
+Issues = "https://github.com/vssehdave/Playbook/issues"
+
+[project.scripts]
+playbook = "getplaybook.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
