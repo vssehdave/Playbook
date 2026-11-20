@@ -1,0 +1,20 @@
+{
+  "name": "playbook",
+  "version": "0.1.0",
+  "description": "Turns work you repeat into deterministic steps: offers an approved playbook from what Claude is doing, runs its script with no model, and records new ones. Needs the playbook command (pip install getplaybook).",
+  "author": {
+    "name": "Veertej Sehdave",
+    "url": "https://github.com/vssehdave"
+  },
+  "homepage": "https://github.com/vssehdave/Playbook",
+  "license": "MIT",
+  "hooks": [
+    "./hooks/playbook-hooks.json"
+  ],
+  "mcpServers": {
+    "playbook": {
+      "command": "playbook",
+      "args": ["mcp"]
+    }
+  }
+}

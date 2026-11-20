@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "playbook",
+  "description": "Playbooks: repeated work turned into deterministic steps.",
+  "owner": {
+    "name": "Veertej Sehdave",
+    "url": "https://github.com/vssehdave"
+  },
+  "plugins": [
+    {
+      "name": "playbook",
+      "description": "Offers an approved playbook from what Claude is doing, runs its script with no model, and records new playbooks. The engine comes from the getplaybook package: pip install getplaybook.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}
