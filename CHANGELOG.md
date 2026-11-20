@@ -16,6 +16,9 @@
   them itself and they showed twice.
 - `sessions.json` is changed under a lock (`sessions.lock`, created exclusively, stale after 10 seconds), so two hooks at
   once no longer drop each other's entries; a hook that cannot get the lock within a second skips saving.
+- `playbook setup` installs the plugin in one step: `pip install getplaybook && playbook setup`. The plugin files now
+  live in the package (`src/getplaybook/plugin/`), so the wheel ships them; setup copies them to `~/.playbook/plugin`
+  and runs `claude plugin marketplace add` and `claude plugin install`. The repository's marketplace points there.
 
 ## 0.1.0
 

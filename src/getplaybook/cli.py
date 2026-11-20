@@ -6,6 +6,7 @@ from . import config, hook, run, store
 
 USAGE = """playbook: recorded ways of doing repeated tasks, and their scripts
 
+  playbook setup [--dry-run]                  install the Claude Code plugin shipped with this package
   playbook list|show NAME|remove NAME|path
   playbook approve NAME [--mode suggest|enforce|auto]   approve it and choose how it is offered (--auto: --mode auto)
   playbook run NAME [ARGS...] [--from STEP]   run an approved playbook (its includes first), as the playbook_run tool does
@@ -35,6 +36,7 @@ def _parser():
     mining = sub.add_parser("mine")
     mining.add_argument("--days", type=int, default=30)
     mining.add_argument("--min", type=int, default=3, dest="minimum")
+    sub.add_parser("setup").add_argument("--dry-run", action="store_true", help="print what would be done")
     writing = sub.add_parser("compile")
     writing.add_argument("--top", type=int, default=1)
     writing.add_argument("--dry-run", action="store_true")
@@ -70,6 +72,10 @@ def main(argv=None) -> int:
         if text:
             sys.stdout.write(text + "\n")
         return 0
+    if args.cmd == "setup":
+        from . import register
+
+        return register.setup(args.dry_run, out=_print)
     if args.cmd == "mcp":
         from . import mcp
 

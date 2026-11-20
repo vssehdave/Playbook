@@ -1,4 +1,4 @@
-"""Steps 1 to 3 of skills/playbook/SKILL.md, the part the compiling session is given (a test keeps the two equal)."""
+"""Steps 1 to 3 of plugin/skills/playbook/SKILL.md, the part the compiling session is given (a test keeps the two equal)."""
 
 WRITING = """# Writing a playbook
 

@@ -439,7 +439,7 @@ class SecurityTest(Home):
 
 class SkillTest(unittest.TestCase):
     def test_the_compiling_session_is_given_steps_one_to_three_of_the_shipped_skill(self):
-        skill = (Path(__file__).parent.parent / "skills" / "playbook" / "SKILL.md").read_text(encoding="utf-8")
+        skill = (Path(__file__).parent.parent / "src" / "getplaybook" / "plugin" / "skills" / "playbook" / "SKILL.md").read_text(encoding="utf-8")
         self.assertEqual(skill.split("---", 2)[-1].split("\n4. **Save**")[0].strip(), skilltext.WRITING)
         self.assertIn("name: playbook", skill.split("---")[1])
 
