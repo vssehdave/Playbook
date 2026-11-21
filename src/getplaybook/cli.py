@@ -12,8 +12,8 @@ USAGE = """playbook: recorded ways of doing repeated tasks, and their scripts
   playbook run NAME [ARGS...] [--from STEP]   run an approved playbook (its includes first), as the playbook_run tool does
   playbook mine [--days 30] [--min 3]         find tasks you repeat in past sessions, no model
   playbook compile [--top N] [--dry-run]      have one Claude Code session write the best repeat up as a draft playbook
-  playbook dedupe [--include-approved]        merge playbooks that do the same route into one
-  playbook mcp                                the MCP server (playbook_find, playbook_run, playbook_save)
+  playbook dedupe [--include-approved] [--dry-run]   merge playbooks that do the same route into one
+  playbook mcp                                the MCP server (playbook_find, playbook_run, playbook_save, playbook_dedupe)
   playbook hook post-tool-use|pre-tool-use|user-prompt-submit   a Claude Code hook: reads its JSON on stdin
   playbook work                               the background run: mine, then compile within the daily cap
 """
@@ -40,7 +40,9 @@ def _parser():
     writing = sub.add_parser("compile")
     writing.add_argument("--top", type=int, default=1)
     writing.add_argument("--dry-run", action="store_true")
-    sub.add_parser("dedupe").add_argument("--include-approved", action="store_true", help="also merge approved playbooks")
+    merging = sub.add_parser("dedupe")
+    merging.add_argument("--include-approved", action="store_true", help="also merge approved playbooks")
+    merging.add_argument("--dry-run", action="store_true", help="say what would be merged, change nothing")
     for name in ("show", "approve", "remove"):
         one = sub.add_parser(name)
         one.add_argument("name")
@@ -93,8 +95,8 @@ def main(argv=None) -> int:
         print(store.root())
         return 0
     if args.cmd == "dedupe":
-        merged = store.dedupe(args.include_approved, out=_print)
-        print(f"{merged} merged" if merged else "nothing to merge")
+        merged = store.dedupe(args.include_approved, out=_print, dry_run=args.dry_run)
+        print(f"{merged} {'would merge' if args.dry_run else 'merged'}" if merged else "nothing to merge")
         return 0
     if args.cmd == "list":
         for pb in store.listing():

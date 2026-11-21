@@ -9,7 +9,7 @@ from pathlib import Path
 from helpers import playbook
 from test_store import Home, make
 
-from getplaybook import cli
+from getplaybook import cli, steps
 
 class ResultTest(Home):
     def approved(self, name, script, **over):
@@ -135,6 +135,26 @@ class DedupeTest(Home):
         self.save("ship-b", ["push a pr"], source="claude", agent_type="shipper")
         self.save("ship-c", ["merge the pr"], source="claude", project="elsewhere")
         self.assertEqual(playbook.dedupe(), 0)
+
+    SHIP_STEPS = ["If not on a feature branch: git checkout -b <name>", "Edit with Write or Edit", "git add -- <files>, then git commit -m ...",
+                  "git push -u origin <branch>", "gh pr create --title ..."]
+
+    def test_a_draft_with_no_route_is_read_from_its_steps(self):
+        self.save("ship-routed", ["ship a change"], source="claude", route=["branch", "edit", "commit", "push", "pr"])
+        self.save("ship-prose", ["open a pr"], source="claude", route=[], steps=self.SHIP_STEPS)
+        self.save("ship-other-agent", ["push work"], source="claude", route=[], steps=self.SHIP_STEPS, agent_type="shipper")
+        self.save("test-prose", ["run tests"], source="claude", route=[], steps=["python -m unittest", "pip install -e ."])
+        lines = []
+        self.assertEqual(playbook.dedupe(dry_run=True, out=lines.append), 1)
+        self.assertEqual(lines, ["would merge ship-routed into ship-prose"])
+        self.assertEqual(len(playbook.names()), 4)  # a dry run changes nothing
+        lines.clear()
+        self.assertEqual(playbook.dedupe(out=lines.append), 1)
+        self.assertEqual(lines, ["merged ship-routed into ship-prose"])
+        self.assertEqual(playbook.names(), ["ship-other-agent", "ship-prose", "test-prose"])  # another agent type stays apart
+
+    def test_the_prose_phases_count_a_pr_check_as_ci_only(self):
+        self.assertEqual(steps.prose_phases(["watch gh pr checks --watch, then gh pr merge"]), {"ci", "merge"})
 
     def test_one_that_others_include_keeps_its_name_and_the_cli_prints_what_it_merged(self):
         self.save("ship-a", ["ship a change"], source="claude")

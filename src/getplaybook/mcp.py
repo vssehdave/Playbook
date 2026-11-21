@@ -1,6 +1,6 @@
 """`playbook mcp`: playbooks as tools, over stdio (Model Context Protocol, JSON-RPC 2.0).
 
-Claude Code starts this next to a session. Tools: playbook_find, playbook_run, playbook_save.
+Claude Code starts this next to a session. Tools: playbook_find, playbook_run, playbook_save, playbook_dedupe.
 """
 import json
 import os
@@ -30,12 +30,20 @@ TOOLS = [
      "inputSchema": {"type": "object", "required": ["name"], "properties": {
          "name": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}},
          "from": {"type": "string", "description": "A step to start at (its name, or its number from 1), to go on after a failure"}}}},
+    {"name": "playbook_dedupe",
+     "description": "Merge playbooks that do the same route into one, keeping the best one and adding the others' triggers to it. "
+                    "Returns a `merged X into Y` line for each, or `nothing to merge`. Approved playbooks are left alone unless "
+                    "include_approved is true. Use dry_run first to see what would go: a merge deletes the merged-away playbook.",
+     "inputSchema": {"type": "object", "properties": {
+         "include_approved": {"type": "boolean", "description": "Also merge approved playbooks (default false)"},
+         "dry_run": {"type": "boolean", "description": "Say what would be merged, change nothing (default false)"}}}},
 ]
 
 INSTRUCTIONS = (
     "Playbooks are recorded ways of doing tasks that repeat: an ordered decision list and, where every step is mechanical, an approved "
     "script that does the job with no model. When a playbook is offered, follow it; call playbook_run for one with a script. "
-    "After a multi-step task that will come up again, record it with the playbook skill and playbook_save.")
+    "After a multi-step task that will come up again, record it with the playbook skill and playbook_save. "
+    "When playbooks pile up that do the same job, playbook_dedupe merges them (dry_run first).")
 
 
 def call(name, args, cwd) -> str:
@@ -61,6 +69,10 @@ def call(name, args, cwd) -> str:
         return text
     if name == "playbook_run":
         return run.run(str(args.get("name") or ""), args.get("args") or [], cwd, start=args.get("from"))
+    if name == "playbook_dedupe":
+        lines = []
+        store.dedupe(args.get("include_approved") is True, out=lines.append, dry_run=args.get("dry_run") is True)
+        return "\n".join(lines) or "nothing to merge"
     raise KeyError(name)
 
 

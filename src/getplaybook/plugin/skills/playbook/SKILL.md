@@ -33,3 +33,7 @@ work that is mostly judgment.
 
 When a playbook is offered, follow it. If it was wrong or incomplete, fix the
 playbook with `playbook_save` once the task is done.
+
+When saved playbooks pile up that do the same job, call `playbook_dedupe` with
+`dry_run` true to see what it would merge, then without it to merge. Approved
+playbooks are left alone unless `include_approved` is true.
