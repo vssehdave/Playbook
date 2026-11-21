@@ -238,7 +238,7 @@ class CliTest(Home):
         self.assertNotIn("auto", self.run_cli("list")[1])
         code, out, _ = self.run_cli("approve", "weekly-report", "--auto")
         self.assertEqual(code, 0)
-        self.assertIn("Automatic: a host that supports it runs this script", out)
+        self.assertIn("Automatic: the hook (or a host that supports it) runs this script", out)
         self.assertTrue(playbook.load("weekly-report")["auto"])
         self.assertIn("approved, auto", self.run_cli("list")[1])
         self.assertIn("approved, automatic", self.run_cli("show", "weekly-report")[1])
@@ -247,7 +247,7 @@ class CliTest(Home):
         playbook.save(make("needs-input", args=[{"name": "path"}]), script=SCRIPT)
         code, _, err = self.run_cli("approve", "needs-input", "--auto")
         self.assertEqual(code, 2)
-        self.assertIn("--auto is refused", err)
+        self.assertIn("mode auto is refused", err)
         self.assertEqual(playbook.load("needs-input")["status"], "draft")
         playbook.save(make("one-word", triggers=["report"]), script=SCRIPT)
         code, _, err = self.run_cli("approve", "one-word", "--auto")
@@ -268,6 +268,36 @@ class CliTest(Home):
         self.assertNotIn("auto", self.run_cli("list")[1])
         self.assertIn("draft (script changed)", self.run_cli("list")[1])
         self.assertIn("draft (script changed)", self.run_cli("show", "weekly-report")[1])
+
+    def test_the_mode_is_signed_shown_and_dropped_on_save(self):
+        playbook.save(make(), script=SCRIPT)
+        self.assertEqual(self.run_cli("approve", "weekly-report", "--mode", "enforce")[0], 0)
+        self.assertEqual(playbook.mode(playbook.load("weekly-report")), "enforce")
+        self.assertIn("approved, enforce", self.run_cli("list")[1])
+        self.assertIn("Mode: enforce", self.run_cli("show", "weekly-report")[1])
+        entries = Path(self.home, "auto.json")
+        entries.write_text(entries.read_text(encoding="utf-8").replace(":enforce:", ":auto:"), encoding="utf-8")  # a model edits the word
+        self.assertEqual(playbook.mode(playbook.load("weekly-report")), "suggest")
+        self.run_cli("approve", "weekly-report", "--auto")
+        pb = playbook.load("weekly-report")
+        key = playbook._auto_key()
+        entries.write_text(json.dumps({"weekly-report": f"{pb['hash']}:{playbook._auto_mac('weekly-report', pb['hash'], '', key)}"}), encoding="utf-8")
+        self.assertEqual(playbook.mode(pb), "auto")  # an entry from before modes is auto
+        self.run_cli("approve", "weekly-report", "--mode", "enforce")
+        self.run_cli("approve", "weekly-report")
+        self.assertEqual(playbook.mode(playbook.load("weekly-report")), "suggest")
+        self.run_cli("approve", "weekly-report", "--mode", "enforce")
+        playbook.save(make(title="Weekly report v2"))
+        self.assertEqual(playbook.mode(playbook.load("weekly-report")), "suggest")
+
+    def test_enforce_needs_something_to_run(self):
+        playbook.save(make("plain-one"))
+        code, _, err = self.run_cli("approve", "plain-one", "--mode", "enforce")
+        self.assertEqual(code, 2)
+        self.assertIn("mode enforce is refused", err)
+        playbook.save(make("outer-one", includes=["plain-one"]))
+        self.assertEqual(self.run_cli("approve", "outer-one", "--mode", "enforce")[0], 0)
+        self.assertEqual(playbook.mode(playbook.load("outer-one")), "enforce")
 
 
 class ToolTest(Home):
@@ -409,7 +439,7 @@ class SecurityTest(Home):
 
 class SkillTest(unittest.TestCase):
     def test_the_compiling_session_is_given_steps_one_to_three_of_the_shipped_skill(self):
-        skill = (Path(__file__).parent.parent / "skills" / "playbook" / "SKILL.md").read_text(encoding="utf-8")
+        skill = (Path(__file__).parent.parent / "src" / "getplaybook" / "plugin" / "skills" / "playbook" / "SKILL.md").read_text(encoding="utf-8")
         self.assertEqual(skill.split("---", 2)[-1].split("\n4. **Save**")[0].strip(), skilltext.WRITING)
         self.assertIn("name: playbook", skill.split("---")[1])
 

@@ -14,7 +14,7 @@
   "mcpServers": {
     "playbook": {
       "command": "playbook",
-      "args": ["mcp"]
+      "args": ["mcp", "--plugin"]
     }
   }
 }

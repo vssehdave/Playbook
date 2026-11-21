@@ -10,7 +10,7 @@
     {
       "name": "playbook",
       "description": "Offers an approved playbook from what Claude is doing, runs its script with no model, and records new playbooks. The engine comes from the getplaybook package: pip install getplaybook.",
-      "source": "./",
+      "source": "./src/getplaybook/plugin",
       "category": "productivity"
     }
   ]

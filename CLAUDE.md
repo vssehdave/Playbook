@@ -12,9 +12,11 @@ and offers the right one while Claude works.
   `RESULT:`/`RESUME:`), `offer` (`offer.decide`, the route rule), `steps`,
   `mine`, `build` (compile, background worker), `text` (redaction),
   `thread`, `config`, `hook`, `mcp`, `cli`.
-- Claude Code plugin in the same repo: `.claude-plugin/plugin.json`,
-  `.claude-plugin/marketplace.json` (source `./`), `hooks/playbook-hooks.json`,
-  `skills/playbook/`. MCP tools: `playbook_find`, `playbook_run` (with
+- Claude Code plugin inside the package, so the wheel ships it:
+  `src/getplaybook/plugin/` (`.claude-plugin/plugin.json`, a one-plugin
+  `marketplace.json` with source `./`, `hooks/playbook-hooks.json`,
+  `skills/playbook/`); the repo's `.claude-plugin/marketplace.json` points
+  there. `playbook setup` (module `register`) installs it. MCP tools: `playbook_find`, `playbook_run` (with
   `from`), `playbook_save`.
 - Home: `PLAYBOOK_HOME` or `~/.playbook`.
 
@@ -52,7 +54,8 @@ back into Almanac.
 - Tests: `PYTHONPATH=src python -m unittest discover -s tests`. Read the
   real exit code, not a piped tail.
 - Test the plugin in a real session with
-  `almanac sandbox --plugin <this folder>`, as for Logbook and Pocketbook.
+  `almanac sandbox --plugin <this folder>/src/getplaybook/plugin`, as for
+  Logbook and Pocketbook.
 - Work in the OneDrive GitHub folder; use worktrees for branches.
 
 ## Open work, in order
@@ -61,19 +64,13 @@ back into Almanac.
    reaches the model, and check the hook payload fields (`session_id`,
    `transcript_path`, `cwd`, `tool_name`, `agent_id`, `agent_type`). If
    `PostToolUse` cannot add context, only the `UserPromptSubmit` path works.
-2. Offer modes, chosen per playbook at approval: `suggest` (today),
-   `enforce` (a `PreToolUse` hook denies hand-run steps the offered playbook
-   covers, allowed again after the playbook fails), `auto` (run without the
-   model; only argument-free chains such as verify or wait-for-CI).
-   Proposed, not yet agreed with the owner.
+2. Confirm in a real session that the `PreToolUse` deny of `enforce`
+   reaches the model and that the payload carries `tool_use_id` and, in a
+   sub-agent, `agent_id`; and that `auto` in the `UserPromptSubmit` hook
+   gives the result.
 3. Live A/B: about 5 tasks x 3 runs, with and without playbooks, main thread
    and one sub-agent type; measure tokens, tool calls, time, success, and
    the offer-to-take rate in the logs. Estimates to test: about 7% of
    main-thread cost, more for sub-agents (test-run and poll chains).
-4. Under Almanac with the plugin installed, `playbook_*` tools appear twice
-   (plugin server and Almanac's entry); the plugin server should list no
-   tools when `ALMANAC_PROXY` is set.
-5. `sessions.json` hook state is replaced without a lock (`shortcut:` in
-   the code): two hooks at once can repeat one offer.
-6. Redaction here is a smaller pattern set than Almanac's.
-7. CI covers Ubuntu, which has not been run locally.
+4. Redaction here is a smaller pattern set than Almanac's.
+5. CI covers Ubuntu, which has not been run locally.

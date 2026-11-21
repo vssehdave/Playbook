@@ -64,11 +64,12 @@ def call(name, args, cwd) -> str:
     raise KeyError(name)
 
 
-def listed() -> list:
-    return TOOLS if config.settings()["enabled"] else []
+def listed(plugin=False) -> list:
+    """The tools; none when turned off, or for the plugin's server under a host that lists these tools itself (no duplicates)."""
+    return TOOLS if config.settings()["enabled"] and not (plugin and config.hosted()) else []
 
 
-def handle(message, cwd):
+def handle(message, cwd, plugin=False):
     """Answer one JSON-RPC message. Returns the reply, or None for a notification."""
     method, ident = message.get("method"), message.get("id")
     if ident is None:
@@ -78,7 +79,7 @@ def handle(message, cwd):
         result = {"protocolVersion": asked, "capabilities": {"tools": {}},
                   "serverInfo": {"name": "playbook", "version": __version__}, "instructions": INSTRUCTIONS}
     elif method == "tools/list":
-        result = {"tools": listed()}
+        result = {"tools": listed(plugin)}
     elif method == "tools/call":
         params = message.get("params") or {}
         try:
@@ -95,7 +96,7 @@ def handle(message, cwd):
     return {"jsonrpc": "2.0", "id": ident, "result": result}
 
 
-def serve(stdin=None, stdout=None) -> int:
+def serve(stdin=None, stdout=None, plugin=False) -> int:
     stdin, stdout = stdin or sys.stdin.buffer, stdout or sys.stdout.buffer
     cwd = os.getcwd()
     for line in stdin:
@@ -107,7 +108,7 @@ def serve(stdin=None, stdout=None) -> int:
         except ValueError:
             reply = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}
         else:
-            reply = handle(message, cwd) if isinstance(message, dict) else None
+            reply = handle(message, cwd, plugin) if isinstance(message, dict) else None
         if reply is not None:
             stdout.write(json.dumps(reply, ensure_ascii=False).encode("utf-8") + b"\n")
             stdout.flush()

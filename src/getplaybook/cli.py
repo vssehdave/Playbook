@@ -6,13 +6,15 @@ from . import config, hook, run, store
 
 USAGE = """playbook: recorded ways of doing repeated tasks, and their scripts
 
-  playbook list|show NAME|approve NAME [--auto]|remove NAME|path
+  playbook setup [--dry-run]                  install the Claude Code plugin shipped with this package
+  playbook list|show NAME|remove NAME|path
+  playbook approve NAME [--mode suggest|enforce|auto]   approve it and choose how it is offered (--auto: --mode auto)
   playbook run NAME [ARGS...] [--from STEP]   run an approved playbook (its includes first), as the playbook_run tool does
   playbook mine [--days 30] [--min 3]         find tasks you repeat in past sessions, no model
   playbook compile [--top N] [--dry-run]      have one Claude Code session write the best repeat up as a draft playbook
   playbook dedupe [--include-approved]        merge playbooks that do the same route into one
   playbook mcp                                the MCP server (playbook_find, playbook_run, playbook_save)
-  playbook hook post-tool-use|user-prompt-submit   a Claude Code hook: reads its JSON on stdin
+  playbook hook post-tool-use|pre-tool-use|user-prompt-submit   a Claude Code hook: reads its JSON on stdin
   playbook work                               the background run: mine, then compile within the daily cap
 """
 
@@ -28,11 +30,13 @@ def _print(text):
 def _parser():
     parser = argparse.ArgumentParser(prog=config.CLI, usage=USAGE)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("list", "path", "work", "mcp"):
+    for name in ("list", "path", "work"):
         sub.add_parser(name)
+    sub.add_parser("mcp").add_argument("--plugin", action="store_true", help="started by the plugin: list no tools under a host that lists them")
     mining = sub.add_parser("mine")
     mining.add_argument("--days", type=int, default=30)
     mining.add_argument("--min", type=int, default=3, dest="minimum")
+    sub.add_parser("setup").add_argument("--dry-run", action="store_true", help="print what would be done")
     writing = sub.add_parser("compile")
     writing.add_argument("--top", type=int, default=1)
     writing.add_argument("--dry-run", action="store_true")
@@ -41,7 +45,9 @@ def _parser():
         one = sub.add_parser(name)
         one.add_argument("name")
         if name == "approve":
-            one.add_argument("--auto", action="store_true", help="also let a host that supports it run the script before the model sees a matching request")
+            one.add_argument("--mode", choices=store.MODES, default="suggest",
+                             help="suggest: offer it; enforce: also refuse the hand-run steps it covers; auto: run it before the model sees a matching request")
+            one.add_argument("--auto", action="store_const", const="auto", dest="mode", help="the same as --mode auto")
     running = sub.add_parser("run")
     running.add_argument("name")
     running.add_argument("args", nargs="*")
@@ -66,10 +72,14 @@ def main(argv=None) -> int:
         if text:
             sys.stdout.write(text + "\n")
         return 0
+    if args.cmd == "setup":
+        from . import register
+
+        return register.setup(args.dry_run, out=_print)
     if args.cmd == "mcp":
         from . import mcp
 
-        return mcp.serve()
+        return mcp.serve(plugin=args.plugin)
     if args.cmd in ("mine", "compile", "work"):
         from . import build, mine
 
@@ -107,6 +117,7 @@ def main(argv=None) -> int:
         print("Steps:\n" + "\n".join(f"  {i}. {s}" for i, s in enumerate(pb["steps"], 1)))
         print(f"Skills: {', '.join(pb['skills'])}\nAgents: {', '.join(pb['agents'])}")
         print(f"Route: {' > '.join(store.route_of(pb))}\nFor: {pb['agent_type'] or 'the main thread'}\nIncludes: {', '.join(pb['includes'])}")
+        print(f"Mode: {store.mode(pb)}")
         if pb["script"]:
             print(f"Script: {store.script_path(pb['name'])}  (hash {pb['hash'] or 'not approved'})")
         return 0
@@ -115,18 +126,24 @@ def main(argv=None) -> int:
         print(f"removed {args.name}")
         return 0
     try:
-        digest, text = store.approve(args.name, args.auto)
+        digest, text = store.approve(args.name, args.mode)
     except ValueError as why:
         print(f"{config.CLI.split()[0]}: {why}", file=sys.stderr)
         return 2
+    enforced = ("Mode enforce: while it is offered in a turn, a tool call that does a step of its route by hand is refused and Claude "
+                "is told to call playbook_run, until a run of it fails in that turn. Approve again without --mode to stop that.")
     if not pb["script"]:
         print(f"Approved {args.name}. It has no script; Claude is shown its steps when a request matches.")
+        if args.mode == "enforce":
+            print(enforced)
         return 0
     lines = text.splitlines()
     _print("\n".join(lines[:40]) + (f"\n... ({len(lines) - 40} more lines)" if len(lines) > 40 else ""))
     print(f"\nApproved {args.name}. sha256 {digest}\nIf the script changes, it goes back to draft until you approve it again.")
-    if args.auto:
-        print(f"Automatic: a host that supports it runs this script before Claude sees a matching request, in the conversation's folder, "
-              f"for up to {run.AUTO_TIMEOUT} seconds, with no model and no prompt. A script that runs the project's own tests or build runs "
-              f"that repository's code. Approve again without --auto to stop that.")
+    if args.mode == "enforce":
+        print(enforced)
+    if args.mode == "auto":
+        print(f"Automatic: the hook (or a host that supports it) runs this script before Claude sees a matching request, in the conversation's "
+              f"folder, for up to {run.AUTO_TIMEOUT} seconds, with no model and no prompt. A script that runs the project's own tests or build "
+              f"runs that repository's code. Approve again without --mode to stop that.")
     return 0

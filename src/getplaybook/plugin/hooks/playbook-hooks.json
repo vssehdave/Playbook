@@ -1,5 +1,13 @@
 {
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "playbook hook pre-tool-use", "timeout": 10 }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "*",
@@ -11,7 +19,7 @@
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "playbook hook user-prompt-submit", "timeout": 10 }
+          { "type": "command", "command": "playbook hook user-prompt-submit", "timeout": 120 }
         ]
       }
     ]

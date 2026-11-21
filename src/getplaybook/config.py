@@ -1,7 +1,7 @@
 """Where Playbook keeps its files, its settings, and which Claude Code folders it may read.
 
 Home is `$PLAYBOOK_HOME`, else `~/.playbook`: `playbooks/` (one folder each), `auto.json` and `auto.key` (the owner's
-approvals for automatic running), `sessions.json` (what the hooks already offered) and `config.json`.
+signed approvals for the enforce and auto modes), `sessions.json` (what the hooks already offered) and `config.json`.
 
 `config.json` holds one section, `playbooks`; every key is optional and the defaults below apply to the rest:
     {"playbooks": {"route": false, "transcript_dirs": ["~/.claude-work"]}}
@@ -23,7 +23,8 @@ DEFAULTS = {
     "enabled": True,
     "inject": True,  # a playbook whose triggers match the typed request is offered
     "route": True,  # a playbook is offered from what Claude is doing (its tool calls and narration)
-    "auto_run": True,  # a host may run a script that `approve --auto` allowed; false never runs one
+    "auto_run": True,  # a script approved with `--mode auto` is run before the model sees a matching request; false never runs one
+    "enforce": True,  # a playbook approved with `--mode enforce` refuses the hand-run steps it covers; false turns that off
     "transcript_dirs": [],  # Claude Code config folders to mine besides ~/.claude and $CLAUDE_CONFIG_DIR
     # a session folder whose name holds one of these is not mined (scratch and temporary work)
     "skip_folders": ["AppData-Local-Temp", "-Temp-", "playbook-compile", "-tmp-", "-private-var-folders-"],

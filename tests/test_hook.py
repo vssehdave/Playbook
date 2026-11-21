@@ -4,6 +4,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -136,6 +138,54 @@ class HookTest(Home):
         broken = subprocess.run([sys.executable, "-m", "getplaybook", "hook", "post-tool-use"], input=b"\xff\xfe nope", capture_output=True, env=env, timeout=60)
         self.assertEqual((broken.returncode, broken.stdout), (0, b""))
 
+    def pre(self, command=None, **over):
+        args = dict({"hook_event_name": "PreToolUse", "tool_use_id": "t3"}, **over)
+        if command is not None:
+            args["tool_input"] = {"command": command}
+        return hook.run("pre-tool-use", json.dumps(self.payload(**args)))
+
+    def test_enforce_refuses_a_step_of_the_offered_route_done_by_hand(self):
+        self.transcript(*self.ladder())
+        self.post()
+        self.assertEqual(self.pre("git push"), "")  # suggest: offered, never refused
+        playbook.approve("ship-change", mode="enforce")
+        self.transcript(*self.ladder("Ship it now", "u2"))
+        self.assertIn("set to enforce", self.post())
+        out = json.loads(self.pre("git push origin main"))["hookSpecificOutput"]
+        self.assertEqual((out["hookEventName"], out["permissionDecision"]), ("PreToolUse", "deny"))
+        self.assertTrue(out["permissionDecisionReason"].startswith('Playbook ship-change is set to enforce: call playbook_run {"name": "ship-change"'))
+        for free in ({"command": "git status"}, {"command": "ls"}):
+            self.assertEqual(self.pre(tool_input=free), "", free)
+        self.assertEqual(self.pre(tool_name="Edit", tool_input={"file_path": "a.py"}), "")
+        self.assertEqual(self.pre(tool_name="mcp__playbook__playbook_run", tool_input={"name": "ship-change"}), "")
+        with mock.patch.dict(os.environ, {"ALMANAC_PROXY": "1"}):
+            self.assertEqual(self.pre("git push"), "")
+        (Path(self.home) / "config.json").write_text(json.dumps({"playbooks": {"enforce": False}}), encoding="utf-8")
+        self.assertEqual(self.pre("git push"), "")
+
+    def test_enforce_stops_once_a_run_of_the_playbook_did_not_pass(self):
+        playbook.approve("ship-change", mode="enforce")
+        call = line("assistant", [{"type": "tool_use", "id": "r1", "name": "mcp__playbook__playbook_run", "input": {"name": "ship-change"}}], "m3b", mid="m3")
+
+        def result(text):
+            return line("user", [{"type": "tool_result", "tool_use_id": "r1", "content": [{"type": "text", "text": text}]}], "m3c")
+
+        self.transcript(*self.ladder())
+        self.post()
+        self.transcript(*self.ladder(), call, result("RESULT: pass\n--- stdout ---\nok"))
+        self.assertIn("deny", self.pre("git push"))
+        self.transcript(*self.ladder(), call, result("RESULT: fail (exit 1)\nboom"))
+        self.assertEqual(self.pre("git push"), "")
+        self.transcript(*self.ladder(), *self.ladder("Next one please", "u9"))  # a new turn: nothing offered in it yet
+        self.assertEqual(self.pre("git push"), "")
+
+    def test_enforce_holds_for_a_playbook_offered_by_the_typed_words(self):
+        playbook.approve("ship-change", mode="enforce")
+        words = "committing and merging this change please"
+        self.assertIn("set to enforce", hook.run("user-prompt-submit", json.dumps({"session_id": "s1", "prompt": words, "cwd": self.cwd})))
+        self.transcript(typed(words))
+        self.assertIn("deny", self.pre("git commit -m x"))
+
 
 class WordsHookTest(Home):
     def prompt(self, text, **over):
@@ -161,6 +211,35 @@ class WordsHookTest(Home):
         self.prompt("please send the weekly report for the team")
         state = json.loads((Path(self.home) / "sessions.json").read_text(encoding="utf-8"))
         self.assertEqual(state["s1:main"]["word"], "weekly-report")
+
+    def test_an_auto_playbook_is_run_by_the_hook_and_its_result_given(self):
+        playbook.save({"name": "weekly-report", "title": "Weekly report", "when": "Send the weekly report.", "triggers": ["weekly report"],
+                       "steps": ["Run the script"], "source": "owner"}, script="print('sent-42')\n")
+        playbook.approve("weekly-report", mode="auto")
+        text = json.loads(self.prompt("please send the weekly report for the team"))["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("has already run the script", text)
+        self.assertIn("sent-42", text)
+        (Path(self.home) / "config.json").write_text(json.dumps({"playbooks": {"auto_run": False}}), encoding="utf-8")
+        self.assertIn("matches this request", self.prompt("please send the weekly report for the team"))
+
+
+class SessionsLockTest(Home):
+    def test_a_held_lock_skips_the_save_a_stale_one_is_taken_and_writers_do_not_lose_entries(self):
+        lock = Path(self.home) / "sessions.lock"
+        lock.write_text("", encoding="utf-8")
+        with mock.patch.object(hook, "LOCK_WAIT", 0.1):
+            hook._save("a:main", {"t": time.time()})
+        self.assertEqual(hook._load(), {})
+        os.utime(lock, (time.time() - 60, time.time() - 60))
+        hook._save("a:main", {"t": time.time()})
+        self.assertIn("a:main", hook._load())
+        self.assertFalse(lock.exists())
+        writers = [threading.Thread(target=hook._save, args=(f"s{i}:main", {"t": time.time()})) for i in range(8)]
+        for w in writers:
+            w.start()
+        for w in writers:
+            w.join()
+        self.assertEqual(len(hook._load()), 9)
 
 
 if __name__ == "__main__":

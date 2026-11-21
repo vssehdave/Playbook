@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- Offer modes, chosen when approving: `playbook approve NAME --mode suggest|enforce|auto` (`--auto` stays as
+  `--mode auto`). The mode is signed with the command line's key in `auto.json` together with the script's hash, so
+  editing `playbook.json` or the entry cannot change it; entries written before modes still read as `auto`.
+  `list` and `show` print the mode.
+- `enforce`: a new PreToolUse hook (`playbook hook pre-tool-use`) refuses a tool call that does a step of the route of a
+  playbook offered in this turn, and tells Claude to call `playbook_run` instead. Reading, editing and the playbook tools
+  are never refused, and once a run of that playbook does not pass in the turn, the steps are Claude's again. The
+  `enforce` setting turns it off.
+- `auto` in plain Claude Code: the UserPromptSubmit hook runs an automatic script itself when the request matches it
+  strongly (setting `auto_run`) and gives Claude the result instead of the note. Its timeout is now 120 seconds.
+- The plugin's MCP server (`playbook mcp --plugin`) lists no tools when `ALMANAC_PROXY` is set, since that host lists
+  them itself and they showed twice.
+- `sessions.json` is changed under a lock (`sessions.lock`, created exclusively, stale after 10 seconds), so two hooks at
+  once no longer drop each other's entries; a hook that cannot get the lock within a second skips saving.
+- `playbook setup` installs the plugin in one step: `pip install getplaybook && playbook setup`. The plugin files now
+  live in the package (`src/getplaybook/plugin/`), so the wheel ships them; setup copies them to `~/.playbook/plugin`
+  and runs `claude plugin marketplace add` and `claude plugin install`. The repository's marketplace points there.
+
 ## 0.1.0
 
 First release. Playbook is the playbook feature of a Claude Code proxy, split out so it works on its own, as a Python
