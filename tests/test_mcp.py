@@ -19,7 +19,7 @@ def rpc(*messages):
 
 
 class McpTest(Home):
-    def test_the_tool_list_is_find_run_and_save(self):
+    def test_the_tool_list_is_find_run_save_and_dedupe(self):
         replies = rpc({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}},
                       {"jsonrpc": "2.0", "method": "notifications/initialized"},
                       {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, {"jsonrpc": "2.0", "id": 3, "method": "ping"})
@@ -27,7 +27,7 @@ class McpTest(Home):
         self.assertEqual(replies[0]["result"]["serverInfo"]["name"], "playbook")
         self.assertEqual(replies[0]["result"]["protocolVersion"], "2025-06-18")
         tools = {t["name"]: t for t in replies[1]["result"]["tools"]}
-        self.assertEqual(sorted(tools), ["playbook_find", "playbook_run", "playbook_save"])
+        self.assertEqual(sorted(tools), ["playbook_dedupe", "playbook_find", "playbook_run", "playbook_save"])
         self.assertIn("from", tools["playbook_run"]["inputSchema"]["properties"])
         self.assertTrue(all(t["inputSchema"]["type"] == "object" for t in tools.values()))
 
@@ -53,6 +53,18 @@ class McpTest(Home):
         (resumed,) = rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "playbook_run", "arguments": {"name": "weekly-report", "from": "weekly-report"}}})
         self.assertTrue(resumed["result"]["content"][0]["text"].startswith("RESULT: pass"))
 
+    def test_dedupe_says_what_it_merged_and_a_dry_run_changes_nothing(self):
+        for name in ("ship-a", "ship-b"):
+            playbook.save(make(name, triggers=[name.replace("-", " ")], source="claude", route=["commit", "push", "pr"]))
+
+        def ask(**args):
+            (reply,) = rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "playbook_dedupe", "arguments": args}})
+            return reply["result"]["content"][0]["text"]
+        self.assertEqual(ask(dry_run=True), "would merge ship-b into ship-a")
+        self.assertEqual(playbook.names(), ["ship-a", "ship-b"])
+        self.assertEqual(ask(), "merged ship-b into ship-a")
+        self.assertEqual(ask(), "nothing to merge")
+
     def test_turned_off_there_are_no_tools(self):
         (Path(self.home) / "config.json").write_text(json.dumps({"playbooks": {"enabled": False}}), encoding="utf-8")
         self.assertEqual(mcp.listed(), [])
@@ -60,8 +72,8 @@ class McpTest(Home):
     def test_the_plugin_server_lists_nothing_under_a_host_that_lists_the_tools(self):
         with mock.patch.dict(os.environ, {"ALMANAC_PROXY": "1"}):
             self.assertEqual(mcp.listed(plugin=True), [])
-            self.assertEqual(len(mcp.listed()), 3)  # the host's own entry
-        self.assertEqual(len(mcp.listed(plugin=True)), 3)
+            self.assertEqual(len(mcp.listed()), 4)  # the host's own entry
+        self.assertEqual(len(mcp.listed(plugin=True)), 4)
 
     def test_the_plugin_declares_the_server_and_the_hooks(self):
         root = Path(__file__).parent.parent / "src" / "getplaybook" / "plugin"

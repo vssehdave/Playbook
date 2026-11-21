@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 from . import config
+from .steps import prose_phases
 
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{1,48}$")
 WORD = re.compile(r"[a-z0-9]+")
@@ -348,8 +349,13 @@ def route_of(pb) -> list:
     return out
 
 
+def _phases(pb) -> set:
+    """The route's phases, or for a playbook with no route the phases its steps name."""
+    return set(route_of(pb)) or prose_phases(pb.get("steps") or ())
+
+
 def similar(a, b) -> bool:
-    x, y = set(route_of(a)), set(route_of(b))
+    x, y = _phases(a), _phases(b)
     return bool(x and y) and a.get("agent_type", "") == b.get("agent_type", "") and a.get("project", "") == b.get("project", "") \
         and len(x & y) / len(x | y) >= SAME_ROUTE
 
@@ -374,9 +380,10 @@ def absorb(keep, other):
     return keep
 
 
-def dedupe(include_approved=False, out=print) -> int:
+def dedupe(include_approved=False, out=print, dry_run=False) -> int:
     """Merge playbooks that do the same route into one (an approved one first, then one with a script, then the most used).
-    Approved playbooks are left alone unless asked for. Returns how many were merged away."""
+    Approved playbooks are left alone unless asked for. With `dry_run` it only says what it would merge.
+    Returns how many were merged away."""
     books = [pb for pb in listing() if include_approved or pb["status"] != "approved"]
     books.sort(key=lambda pb: (pb["status"] != "approved", not pb["script"], -pb["uses"], pb["created"], pb["name"]))
     used = {n for pb in listing() for n in pb["includes"]}  # one that others include keeps its name
@@ -385,8 +392,9 @@ def dedupe(include_approved=False, out=print) -> int:
         for other in books[i + 1:]:
             if keep["name"] in gone or other["name"] in gone or other["name"] in used or not similar(keep, other):
                 continue
-            keep = absorb(load(keep["name"]) or keep, other)
-            remove(other["name"])
+            if not dry_run:
+                keep = absorb(load(keep["name"]) or keep, other)
+                remove(other["name"])
             gone.add(other["name"])
-            out(f"merged {other['name']} into {keep['name']}")
+            out(f"{'would merge' if dry_run else 'merged'} {other['name']} into {keep['name']}")
     return len(gone)

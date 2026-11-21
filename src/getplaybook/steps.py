@@ -133,3 +133,19 @@ def chains(route) -> list:
 
 def phase(sig) -> str:
     return next((name for name, pattern in PHASES if pattern.search(sig)), "")
+
+
+# The same phases found in a playbook's prose steps ("git checkout -b ...", "Edit with ..."), for one with no recorded route.
+_PROSE = [(name, re.compile(r"\b" + pattern.pattern[len("^Bash: "):])) for name, pattern in PHASES if pattern.pattern.startswith("^Bash: ")]
+_PROSE.append(("edit", re.compile(r"\b(Edit|Write|sed -i)\b")))
+
+
+def prose_phases(lines) -> set:
+    """The phases the commands named in these step lines belong to. A match is blanked, so `gh pr checks` is ci and not also pr."""
+    found = set()
+    for line in lines:
+        for name, pattern in _PROSE:
+            line, hits = pattern.subn(" ", line)
+            if hits:
+                found.add(name)
+    return found

@@ -37,6 +37,7 @@ too very yes yeah okay sure thanks thank still again next first last same each e
 _REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.S)
 _DROP = re.compile(r"https?://\S+|\S*[\\/]\S*|\S*\d\S*")  # urls, paths, numbers, hashes
 SHAPE_SIMILAR = 0.75  # share of phases two turns must have in common to count as the same way of working
+SUBSET_SIMILAR = 0.6  # lower bar for a set that only adds or drops phases of a seed's: a core of 5 in a flow of 8 is .625
 MIN_PHASES = 3  # fewer is ordinary editing or a question, not a way of working
 
 
@@ -185,6 +186,8 @@ def read_turns(days=30, cfg=None, dirs=None, now=None) -> list:
                 except OSError:
                     continue
                 for turn in read_file(path, folder.name, cutoff, kind):
+                    if kind is not None:
+                        turn["session"] = path.parent.parent.name  # a sub-agent's work belongs to the session that ran it
                     key = (turn["at"], turn["text"])  # a resumed or moved session is copied into another file, and keeps its time stamps
                     if key not in seen:
                         seen.add(key)
@@ -248,6 +251,12 @@ def _phases(turn) -> list:
     return [p for p in map(phase, turn.get("steps", ())) if p]
 
 
+def _joins(s, seed) -> bool:
+    """True when the set of phases `s` is the way of working of `seed`: alike, or one only adds to the other."""
+    jac = len(s & seed) / len(s | seed)
+    return jac >= SHAPE_SIMILAR or (jac >= SUBSET_SIMILAR and (s <= seed or seed <= s))
+
+
 def workflows(turns) -> list:
     """Group turns by the way the work was done, whatever the words: (phases of the seed, turns) pairs.
 
@@ -259,8 +268,8 @@ def workflows(turns) -> list:
     counts = Counter(s for s, _ in shaped)
     seeds, home = [], {}
     for s in sorted(counts, key=lambda s: (-counts[s], sorted(s))):
-        near = max((x for x in seeds if len(s & x) >= MIN_PHASES), key=lambda seed: (len(s & seed) / len(s | seed), sorted(seed)), default=None)
-        if near is None or len(s & near) / len(s | near) < SHAPE_SIMILAR:
+        near = max((x for x in seeds if len(s & x) >= MIN_PHASES and _joins(s, x)), key=lambda seed: (len(s & seed) / len(s | seed), sorted(seed)), default=None)
+        if near is None:
             seeds.append(s)
             near = s
         home[s] = near
@@ -328,8 +337,8 @@ def _building_blocks(turns, kind, enough, stored) -> list:
 
 
 def find_candidates(turns, minimum=3) -> list:
-    def enough(g):
-        return len(g) >= minimum and len({t["session"] for t in g}) >= 2
+    def enough(g):  # distinct top-level sessions, not turns: a task retried many times in one session is one repeat
+        return len({t["session"] for t in g}) >= max(minimum, 2)
 
     found, stored = [], _stored()
     for kind in dict.fromkeys(t.get("agent_type", "") for t in turns):  # the main thread, and each sub-agent type, on its own
@@ -341,7 +350,10 @@ def find_candidates(turns, minimum=3) -> list:
         for seed, g in workflows(part):  # a way of working that is mostly one worded request again adds nothing
             if enough(g) and not _matched(g) and not _overlaps(_tagged(seed, kind), stored) and not any(len(ids & {id(t) for t in g}) * 2 > len(g) for ids in worded):
                 found.append(describe_workflow(seed, g))
-    return sorted(found, key=lambda c: (-c["tokens"], c["id"]))[:KEEP]
+    texts = [c for c in found if c.get("kind") is None]
+    drop = {c["id"] for c in texts for o in texts if o is not c and set(o["examples"]) == set(c["examples"])
+            and (o["count"], o["id"]) > (c["count"], c["id"])}  # the same task seen again under another agent type: keep the larger
+    return sorted((c for c in found if c["id"] not in drop), key=lambda c: (-c["tokens"], c["id"]))[:KEEP]
 
 
 def mine(days=30, minimum=3, cfg=None, dirs=None, out=print, now=None) -> list:
