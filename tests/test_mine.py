@@ -77,8 +77,8 @@ class Home(unittest.TestCase):
         self.cfg = {"playbooks": copy.deepcopy(config.DEFAULTS)}
 
     def three_sessions(self, texts=REPORT, tools=BUILD, folder="C--code-billing-app"):
-        for sid in (0, 1):
-            write_session(self.cfg_dir, folder, f"sess-{sid}", [(t, tools) for n, t in enumerate(texts) if n % 2 == sid])
+        for sid in (0, 1, 2):
+            write_session(self.cfg_dir, folder, f"sess-{sid}", [(t, tools) for n, t in enumerate(texts) if n % 3 == sid])
         return texts
 
 
@@ -156,10 +156,10 @@ class ClusterTest(Home):
         with contextlib.redirect_stdout(io.StringIO()):
             return mine.mine(30, minimum, self.cfg)
 
-    def test_three_similar_multistep_turns_in_two_sessions_make_a_candidate(self):
+    def test_three_similar_multistep_turns_in_three_sessions_make_a_candidate(self):
         self.three_sessions()
         (c,) = self.mined()
-        self.assertEqual((c["count"], c["sessions"]), (3, 2))
+        self.assertEqual((c["count"], c["sessions"]), (3, 3))
         self.assertEqual(c["projects"], ["code/billing-app"])
         self.assertEqual(c["tokens"], 3 * 4 * 160)
         self.assertEqual(c["median_requests"], 4)
@@ -192,8 +192,8 @@ class ClusterTest(Home):
         self.three_sessions()
         big = [("Bash", {"command": f"step{i} go"}) for i in range(8)]
         texts = OTHER + [OTHER[0] + " today"]
-        for sid in (0, 1):
-            write_session(self.cfg_dir, "C--code-ops", f"ops-{sid}", [(t, big) for n, t in enumerate(texts) if n % 2 == sid])
+        for sid in (0, 1, 2):
+            write_session(self.cfg_dir, "C--code-ops", f"ops-{sid}", [(t, big) for n, t in enumerate(texts) if n % 3 == sid])
         first = self.mined()
         self.assertEqual([c["count"] for c in first], [3, 3])
         self.assertGreater(first[0]["tokens"], first[1]["tokens"])
@@ -314,14 +314,14 @@ class WorkflowTest(Home):
         with contextlib.redirect_stdout(io.StringIO()):
             return mine.mine(30, minimum, self.cfg)
 
-    def sessions(self, texts=SHIP_TEXTS[:3], tools=SHIP, count=2, folder="C--code-billing-app"):
+    def sessions(self, texts=SHIP_TEXTS[:3], tools=SHIP, count=3, folder="C--code-billing-app"):
         for sid in range(count):
             write_session(self.cfg_dir, folder, f"{folder}-{sid}", [(t, tools) for n, t in enumerate(texts) if n % count == sid])
 
     def test_different_words_with_the_same_phases_make_one_workflow_candidate(self):
         self.sessions()
         (c,) = self.mined()
-        self.assertEqual((c["kind"], c["count"], c["sessions"]), ("workflow", 3, 2))
+        self.assertEqual((c["kind"], c["count"], c["sessions"]), ("workflow", 3, 3))
         self.assertEqual(c["phases"], ["branch", "edit", "commit", "push", "pr"])  # in the order they usually occur
         self.assertEqual(c["steps"], ["Bash: git checkout", "Edit", "Bash: git add", "Bash: git commit", "Bash: git push", "Bash: gh pr create"])
         self.assertEqual(c["seed"], ["branch", "commit", "edit", "pr", "push"])
@@ -350,7 +350,7 @@ class WorkflowTest(Home):
         self.assertEqual(self.mined()[0]["id"], first["id"])
         write_session(self.cfg_dir, "C--code-billing-app", "sess-extra", [(SHIP_TEXTS[3], SHIP + [("Bash", {"command": "python -m unittest"})])])
         (more,) = self.mined()
-        self.assertEqual((more["count"], more["sessions"], more["id"]), (4, 3, first["id"]))
+        self.assertEqual((more["count"], more["sessions"], more["id"]), (4, 4, first["id"]))
 
     def test_two_different_ways_of_working_stay_apart(self):
         self.sessions()
@@ -752,7 +752,7 @@ class SubAgentTest(Fake):
 
     def test_a_chain_in_one_agent_type_is_a_candidate_with_that_type_and_a_route(self):
         for n, task in enumerate(self.TASKS):
-            self.sub(f"sess-{n % 2}", f"a{n}", task, self.LOOP)
+            self.sub(f"sess-{n % 3}", f"a{n}", task, self.LOOP)
         (c,) = [c for c in mine.mine(30, 3, self.cfg, out=lambda *_: None) if c.get("kind") == "chain"]
         self.assertEqual((c["chain"], c["agent_type"], c["phases"], c["count"]), ("test-loop", "verifier", ["test"], 3))
 
@@ -797,6 +797,43 @@ class SubAgentTest(Fake):
         self.assertEqual(mine.next_candidate()["id"], "flow1")
         mine._save(mine.state_path(), {})
         self.assertEqual(mine.next_candidate()["id"], "chain1")  # blocks before the workflows that include them
+
+
+class CollapseTest(Home):
+    """One way of working, or one task, must not come out as many candidates."""
+
+    SIG = {"sync": "Bash: git pull", "branch": "Bash: git checkout", "edit": "Edit", "commit": "Bash: git commit", "push": "Bash: git push",
+           "pr": "Bash: gh pr create", "ci": "Bash: gh run view", "merge": "Bash: gh pr merge", "test": "Bash: python -m unittest"}
+
+    LOOP, TASKS, sub = SubAgentTest.LOOP, SubAgentTest.TASKS, SubAgentTest.sub
+
+    def turn(self, phases, text="x", session="s", agent_type=""):
+        steps = [self.SIG[p] for p in phases]
+        return {"text": text, "session": session, "project": "p", "tools": steps, "steps": steps, "skills": [], "agents": [], "tokens": 1,
+                "requests": 1, "agent_type": agent_type, "chains": [], "at": text}
+
+    def test_sets_that_only_add_or_drop_phases_of_a_seed_join_it(self):
+        sets = ["sync branch edit commit push pr ci", "branch edit commit pr push ci merge sync", "branch edit commit push pr",
+                "sync branch test edit commit push pr"]
+        groups = mine.workflows([self.turn(s.split(), text=s) for s in sets])
+        self.assertEqual([sorted(len(g) for _, g in groups)], [[1, 3]])  # the last one adds `test` to the others: its own way
+        self.assertEqual(sorted(len(seed) for seed, _ in groups), [7, 8])
+        only = mine.workflows([self.turn(s.split(), text=s) for s in sets[:3]])
+        self.assertEqual([len(g) for _, g in only], [3])
+        apart = mine.workflows([self.turn("branch edit commit push pr".split()), self.turn("branch edit commit test ci".split())])
+        self.assertEqual(len(apart), 2)  # neither is a subset of the other
+
+    def test_a_task_retried_in_one_session_is_one_repeat(self):
+        for n, task in enumerate(self.TASKS):
+            self.sub("sess-0", f"a{n}", task, self.LOOP)
+        self.assertEqual({t["session"] for t in mine.read_turns(30, self.cfg)}, {"sess-0"})
+        self.assertEqual(mine.mine(30, 3, self.cfg, out=lambda *_: None), [])
+
+    def test_the_same_task_under_two_agent_types_is_listed_once_the_larger(self):
+        turns = [self.turn("branch edit commit".split(), text="fix the five problems an auditor found in the module", session=f"s{n}", agent_type=kind)
+                 for kind in ("", "verifier") for n in range(3 if kind else 4)]
+        found = mine.find_candidates(turns, 3)
+        self.assertEqual([(c["count"], c["agent_type"]) for c in found if c.get("kind") is None], [(4, "")])
 
 
 if __name__ == "__main__":
