@@ -55,7 +55,7 @@ def _locked():
         try:
             os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
             held = True
-        except FileExistsError:
+        except (FileExistsError, PermissionError):  # Windows: PermissionError while another writer is deleting the lock
             with contextlib.suppress(OSError):
                 if time.time() - lock.stat().st_mtime > LOCK_STALE:
                     lock.unlink()
