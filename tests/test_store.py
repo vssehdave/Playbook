@@ -255,6 +255,15 @@ class CliTest(Home):
         self.assertIn("two or more words", err)
         self.assertEqual(playbook.load("one-word")["status"], "draft")
 
+    def test_approve_without_mode_uses_default_mode_and_only_suggest_or_enforce(self):
+        playbook.save(make(), script=SCRIPT)
+        for given, want in (("enforce", "enforce"), ("auto", "suggest"), ("junk", "suggest")):
+            (Path(self.home) / "config.json").write_text(json.dumps({"playbooks": {"default_mode": given}}), encoding="utf-8")
+            self.assertEqual(self.run_cli("approve", "weekly-report")[0], 0)
+            self.assertEqual(playbook.mode(playbook.load("weekly-report")), want, given)
+        self.assertEqual(self.run_cli("approve", "weekly-report", "--mode", "auto")[0], 0)  # said, so not the setting
+        self.assertEqual(playbook.mode(playbook.load("weekly-report")), "auto")
+
     def test_list_and_show_say_auto_only_while_it_would_really_run(self):
         playbook.save(make(), script=SCRIPT)
         self.run_cli("approve", "weekly-report", "--auto")
