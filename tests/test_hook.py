@@ -158,8 +158,6 @@ class HookTest(Home):
             self.assertEqual(self.pre(tool_input=free), "", free)
         self.assertEqual(self.pre(tool_name="Edit", tool_input={"file_path": "a.py"}), "")
         self.assertEqual(self.pre(tool_name="mcp__playbook__playbook_run", tool_input={"name": "ship-change"}), "")
-        with mock.patch.dict(os.environ, {"ALMANAC_PROXY": "1"}):
-            self.assertEqual(self.pre("git push"), "")
         (Path(self.home) / "config.json").write_text(json.dumps({"playbooks": {"enforce": False}}), encoding="utf-8")
         self.assertEqual(self.pre("git push"), "")
 
@@ -185,6 +183,27 @@ class HookTest(Home):
         self.assertIn("set to enforce", hook.run("user-prompt-submit", json.dumps({"session_id": "s1", "prompt": words, "cwd": self.cwd})))
         self.transcript(typed(words))
         self.assertIn("deny", self.pre("git commit -m x"))
+
+
+    def test_enforce_works_under_a_host_from_the_transcript_alone(self):
+        playbook.approve("ship-change", mode="enforce")
+        with mock.patch.dict(os.environ, {"ALMANAC_PROXY": "1"}):
+            self.transcript(*self.ladder("Ship it now", "u2"))  # route and narration agree: the host offered it
+            self.assertEqual(self.post(), "")  # offers stay the host's
+            out = json.loads(self.pre("git push origin main"))["hookSpecificOutput"]
+            self.assertEqual(out["permissionDecision"], "deny")
+            self.assertFalse((Path(self.home) / "sessions.json").exists())
+            self.assertEqual(self.pre("git status"), "")
+            self.transcript(*self.ladder("Ship it now", "u2")[:-3])  # only one signal before the call: not offered yet
+            with mock.patch("getplaybook.offer._ahead", return_value=False):
+                self.assertEqual(self.pre("git push origin main"), "")
+            self.transcript(typed("committing and merging this change please"))  # offered by the typed words
+            self.assertIn("deny", self.pre("git commit -m x"))
+            self.transcript(*self.ladder("Ship it now", "u2"), *self.ladder("Next one please", "u9")[:1])  # a new turn
+            self.assertEqual(self.pre("git push"), "")
+            playbook.approve("ship-change")  # suggest: offered, never refused
+            self.transcript(*self.ladder("Ship it now", "u2"))
+            self.assertEqual(self.pre("git push"), "")
 
 
 class WordsHookTest(Home):

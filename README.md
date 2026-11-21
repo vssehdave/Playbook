@@ -63,7 +63,7 @@ Everything lives in `~/.playbook` (`$PLAYBOOK_HOME` to move it): `playbooks/<nam
 Settings, all optional, in `config.json`:
 
 ```json
-{"playbooks": {"enabled": true, "inject": true, "route": true, "enforce": true, "auto_run": true, "transcript_dirs": ["~/.claude-work"],
+{"playbooks": {"enabled": true, "inject": true, "route": true, "enforce": true, "auto_run": true, "default_mode": "suggest", "transcript_dirs": ["~/.claude-work"],
                "skip_folders": ["AppData-Local-Temp", "-Temp-", "playbook-compile"], "compile_per_day": 1}}
 ```
 

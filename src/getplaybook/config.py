@@ -25,6 +25,7 @@ DEFAULTS = {
     "route": True,  # a playbook is offered from what Claude is doing (its tool calls and narration)
     "auto_run": True,  # a script approved with `--mode auto` is run before the model sees a matching request; false never runs one
     "enforce": True,  # a playbook approved with `--mode enforce` refuses the hand-run steps it covers; false turns that off
+    "default_mode": "suggest",  # the mode `approve` gives a playbook when --mode is not said: suggest or enforce
     "transcript_dirs": [],  # Claude Code config folders to mine besides ~/.claude and $CLAUDE_CONFIG_DIR
     # a session folder whose name holds one of these is not mined (scratch and temporary work)
     "skip_folders": ["AppData-Local-Temp", "-Temp-", "playbook-compile", "-tmp-", "-private-var-folders-"],

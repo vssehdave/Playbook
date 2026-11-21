@@ -47,8 +47,8 @@ def _parser():
         one = sub.add_parser(name)
         one.add_argument("name")
         if name == "approve":
-            one.add_argument("--mode", choices=store.MODES, default="suggest",
-                             help="suggest: offer it; enforce: also refuse the hand-run steps it covers; auto: run it before the model sees a matching request")
+            one.add_argument("--mode", choices=store.MODES,
+                             help="default: the default_mode setting, else suggest. suggest: offer it; enforce: also refuse the hand-run steps it covers; auto: run it before the model sees a matching request")
             one.add_argument("--auto", action="store_const", const="auto", dest="mode", help="the same as --mode auto")
     running = sub.add_parser("run")
     running.add_argument("name")
@@ -128,6 +128,10 @@ def main(argv=None) -> int:
         print(f"removed {args.name}")
         return 0
     try:
+        if args.mode is None:
+            args.mode = config.settings()["default_mode"]
+            if args.mode not in ("suggest", "enforce"):
+                args.mode = "suggest"
         digest, text = store.approve(args.name, args.mode)
     except ValueError as why:
         print(f"{config.CLI.split()[0]}: {why}", file=sys.stderr)

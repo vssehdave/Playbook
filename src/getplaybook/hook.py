@@ -2,7 +2,9 @@
 refuse a step done by hand that an offered playbook set to enforce covers (PreToolUse).
 
 Each reads the hook's JSON from stdin and returns the text to print: hook JSON adding `additionalContext`, or "". Nothing
-here raises: any error means no offer. They do nothing at all when a host that places offers itself launched Claude Code.
+here raises: any error means no offer. When a host that places offers itself launched
+Claude Code, it also runs automatic playbooks, so the other two hooks stay silent; PreToolUse still works, with the offers worked
+out again from the transcript.
 """
 import contextlib
 import hashlib
@@ -53,7 +55,7 @@ def _locked():
         try:
             os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
             held = True
-        except FileExistsError:
+        except (FileExistsError, PermissionError):  # Windows: PermissionError while another writer is deleting the lock
             with contextlib.suppress(OSError):
                 if time.time() - lock.stat().st_mtime > LOCK_STALE:
                     lock.unlink()
@@ -157,6 +159,13 @@ def post_tool_use(payload) -> str:
     return _out("PostToolUse", kept["text"]) if kept else ""
 
 
+def _by_words(low, cwd) -> list:
+    """The playbook whose triggers match a typed request (already `handwritten`), as a list of at most one."""
+    if len(low) < offer.MIN_REQUEST or CONTINUE.match(low):
+        return []
+    return offer.find(low, project_names(cwd), limit=1, agent_type="")
+
+
 def user_prompt_submit(payload) -> str:
     """The note of the playbook whose triggers match the typed request, when one does."""
     cfg = config.settings()
@@ -164,9 +173,7 @@ def user_prompt_submit(payload) -> str:
     if config.hosted() or not (cfg["enabled"] and cfg["inject"]) or not isinstance(prompt, str):
         return ""
     low = handwritten(prompt)
-    if len(low) < offer.MIN_REQUEST or CONTINUE.match(low):
-        return ""
-    best = offer.find(low, project_names(payload.get("cwd")), limit=1, agent_type="")
+    best = _by_words(low, payload.get("cwd"))
     if not best:
         return ""
     chosen = store.bump(best[0]["name"]) or best[0]
@@ -207,26 +214,45 @@ def _deny(pb) -> str:
     return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": why}})
 
 
+def _offered_again(messages, start, kind, payload) -> set:
+    """The playbooks a host offered this turn, worked out again: the host puts its offers in the request, not in the session file,
+    so nothing records them. The words' match, and every route offer `offer.decide` would make from the thread before the call
+    now being judged (the host decides after each result, one offer at a time)."""
+    cwd = payload.get("cwd")
+    names = {pb["name"] for pb in _by_words(handwritten(person_text(messages[start])), cwd)} if not kind else set()
+    after = [m for m in messages[start + 1:] if m.get("uuid") != ""]  # not the call itself, added by `_thread`
+    asked = [m for m in after if m.get("role") == "assistant"]
+    while True:
+        kept = offer.decide(asked, project_names(cwd), kind, names, _called(after), cwd)
+        if not kept:
+            return names
+        names.add(kept["name"])
+
+
 def pre_tool_use(payload) -> str:
     """Refuse a tool call whose phase (test, commit, push ...) is on the route of a playbook offered this turn and set to enforce,
     until a run of that playbook has not passed this turn. Reading, editing and the playbook tools themselves are never refused."""
     cfg = config.settings()
     name, given = payload.get("tool_name"), payload.get("tool_input")
-    if config.hosted() or not (cfg["enabled"] and cfg["enforce"]) or not isinstance(name, str) or "playbook_" in name:
+    hosted = config.hosted()
+    if not (cfg["enabled"] and cfg["enforce"]) or not isinstance(name, str) or "playbook_" in name:
         return ""
     phases = set(block_phases({"type": "tool_use", "name": name, "input": given if isinstance(given, dict) else {}})) - FREE
     kind = str(payload.get("agent_type") or "") if payload.get("agent_id") else ""
-    mine = _load().get(f"{payload.get('session_id') or ''}:{kind or 'main'}")
-    if not phases or not isinstance(mine, dict) or not (mine.get("offered") or mine.get("word")):
+    mine = {} if hosted else _load().get(f"{payload.get('session_id') or ''}:{kind or 'main'}")
+    if not phases or not hosted and (not isinstance(mine, dict) or not (mine.get("offered") or mine.get("word"))):
         return ""
     found = _thread(payload)  # only now the session file: this hook runs before every tool call
     if found is None:
         return ""
     messages, start, kind = found
     typed = person_text(messages[start])
-    names = set(mine.get("offered") or ()) if mine.get("turn") == (messages[start].get("uuid") or _digest(typed)) else set()
-    if mine.get("prompt") == _digest(typed) and isinstance(mine.get("word"), str):
-        names.add(mine["word"])
+    if hosted:
+        names = _offered_again(messages, start, kind, payload)
+    else:
+        names = set(mine.get("offered") or ()) if mine.get("turn") == (messages[start].get("uuid") or _digest(typed)) else set()
+        if mine.get("prompt") == _digest(typed) and isinstance(mine.get("word"), str):
+            names.add(mine["word"])
     names -= _failed(messages[start + 1:])
     for pb in filter(None, (store.load(n) for n in sorted(names) if store.valid_name(n))):
         if store.mode(pb) == "enforce" and pb["agent_type"] == kind and phases & set(store.route_of(pb)):
