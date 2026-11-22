@@ -2,7 +2,7 @@
 import argparse
 import sys
 
-from . import config, hook, run, store
+from . import config, hook, log, run, store
 
 USAGE = """playbook: recorded ways of doing repeated tasks, and their scripts
 
@@ -10,6 +10,7 @@ USAGE = """playbook: recorded ways of doing repeated tasks, and their scripts
   playbook list|show NAME|remove NAME|path
   playbook approve NAME [--mode suggest|enforce|auto]   approve it and choose how it is offered (--auto: --mode auto)
   playbook run NAME [ARGS...] [--from STEP]   run an approved playbook (its includes first), as the playbook_run tool does
+  playbook stats                              offers, takes, denies and run results per playbook, from the offer log
   playbook mine [--days 30] [--min 3]         find tasks you repeat in past sessions, no model
   playbook compile [--top N] [--dry-run]      have one Claude Code session write the best repeat up as a draft playbook
   playbook dedupe [--include-approved] [--dry-run]   merge playbooks that do the same route into one
@@ -30,7 +31,7 @@ def _print(text):
 def _parser():
     parser = argparse.ArgumentParser(prog=config.CLI, usage=USAGE)
     sub = parser.add_subparsers(dest="cmd", required=True)
-    for name in ("list", "path", "work"):
+    for name in ("list", "path", "work", "stats"):
         sub.add_parser(name)
     sub.add_parser("mcp").add_argument("--plugin", action="store_true", help="started by the plugin: list no tools under a host that lists them")
     mining = sub.add_parser("mine")
@@ -97,6 +98,9 @@ def main(argv=None) -> int:
     if args.cmd == "dedupe":
         merged = store.dedupe(args.include_approved, out=_print, dry_run=args.dry_run)
         print(f"{merged} {'would merge' if args.dry_run else 'merged'}" if merged else "nothing to merge")
+        return 0
+    if args.cmd == "stats":
+        print("\n".join(log.stats()) or "no events logged yet")
         return 0
     if args.cmd == "list":
         for pb in store.listing():

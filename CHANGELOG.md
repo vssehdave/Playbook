@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `enforce` for delegate playbooks: after a passing `playbook_run` returns an `AGENT CALL`, an Agent call with that
+  `subagent_type` and prompt is allowed; any other Agent call in the turn is refused with "send the AGENT CALL
+  unchanged". `playbook_save` gives a delegate playbook `route: ["delegate"]` unless it sets one.
+- Offer log: each offer, take (`playbook_run` called), deny and run result (pass or fail) is one line in
+  `log.jsonl` (in the home's `logs/` folder when there is one): time, session, agent type, playbook, mode, event; never
+  request text or tool input. `playbook stats` prints the counts per playbook.
+- Offer notes now tell Claude the exact call: `Run playbook_run {"name": ..., "args": [...]} for this instead of doing it by hand.`
 - Delegate playbooks: `playbook.json` may hold `delegate: {agent, prompt}`, a ready-made sub-agent call. `playbook_run`
   runs any scripts, then ends a passing report with `AGENT CALL: {...}` (the Agent tool input, with `{arg}` placeholders
   filled by position) for Claude to send as it is. The approved hash covers the delegate (unchanged for playbooks without

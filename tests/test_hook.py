@@ -11,10 +11,11 @@ from pathlib import Path
 from unittest import mock
 
 from helpers import playbook
+from test_delegate import delegating
 from test_offer import ship
 from test_store import Home
 
-from getplaybook import hook
+from getplaybook import hook, log
 
 ROOT = Path(__file__).parent.parent
 
@@ -184,6 +185,48 @@ class HookTest(Home):
         self.transcript(typed(words))
         self.assertIn("deny", self.pre("git commit -m x"))
 
+
+    def test_enforce_lets_a_delegate_playbook_send_its_returned_call_unchanged(self):
+        saved = playbook.save(delegating())
+        self.assertEqual(saved["route"], ["delegate"])
+        playbook.approve("review-branch", mode="enforce")
+        words = "please review branch main and look at the tests"
+        self.assertIn("set to enforce", hook.run("user-prompt-submit", json.dumps({"session_id": "s1", "prompt": words, "cwd": self.cwd})))
+        call = {"subagent_type": "crew:code-reviewer", "description": "x", "prompt": "Review main and the tests."}
+        run = line("assistant", [{"type": "tool_use", "id": "r1", "name": "mcp__playbook__playbook_run", "input": {"name": "review-branch"}}], "m3b", mid="m3")
+        done = line("user", [{"type": "tool_result", "tool_use_id": "r1", "content": [{"type": "text", "text": "RESULT: pass\nAGENT CALL: " + json.dumps(call)}]}], "m3c")
+
+        def agent(**over):
+            return self.pre(tool_name="Agent", tool_input=dict(call, **over))
+
+        self.transcript(typed(words))
+        self.assertIn("call playbook_run", agent())  # not run yet: the own call is refused
+        self.transcript(typed(words), run, done)
+        self.assertEqual(agent(), "")
+        self.assertEqual(agent(description="other"), "")  # only the type and the prompt are compared
+        for bad in (agent(prompt="Review main, quickly."), agent(subagent_type="explorer")):
+            self.assertIn("send that AGENT CALL unchanged", bad)
+        self.assertEqual(self.pre("git status"), "")
+        failed = line("user", [{"type": "tool_result", "tool_use_id": "r1", "content": "RESULT: fail (exit 1)"}], "m3c")
+        self.transcript(typed(words), run, failed)
+        self.assertEqual(agent(prompt="my own"), "")  # a failed run frees the steps
+
+    def test_the_offer_log_records_events_without_request_text(self):
+        playbook.approve("ship-change", mode="enforce")
+        words = "committing and merging this change please"
+        hook.run("user-prompt-submit", json.dumps({"session_id": "s1", "prompt": words, "cwd": self.cwd}))
+        self.transcript(typed(words))
+        self.pre("git commit -m secret-message")
+        run = {"tool_name": "mcp__playbook__playbook_run", "tool_input": {"name": "ship-change", "args": ["secret-arg"]}}
+        self.pre(**run)
+        self.post(**run, tool_response={"content": [{"type": "text", "text": "RESULT: pass\nok"}]})
+        rows = [json.loads(x) for x in (Path(self.home) / "log.jsonl").read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([r["event"] for r in rows], ["offer", "deny", "take", "pass"])
+        self.assertEqual({(r["playbook"], r["session_id"], r["agent_type"]) for r in rows}, {("ship-change", "s1", "")})
+        self.assertEqual(rows[0]["mode"], "enforce")
+        text = (Path(self.home) / "log.jsonl").read_text(encoding="utf-8")
+        self.assertFalse(any(x in text for x in ("secret", "committing", "please")))
+        self.assertEqual(log.stats(), [f"{'ship-change':<28} offers 1  takes 1  denies 1  passes 1  fails 0"])
 
     def test_enforce_works_under_a_host_from_the_transcript_alone(self):
         playbook.approve("ship-change", mode="enforce")

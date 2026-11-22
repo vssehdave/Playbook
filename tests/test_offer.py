@@ -39,7 +39,7 @@ class DecideTest(Home):
         self.approved()
         found = playbook.decide(LADDER)
         self.assertEqual((found["name"], found["signals"]), ("ship-change", ["route", "narration", "repo"]))
-        self.assertIn('playbook "ship-change" covers the rest of this: call playbook_run {"name": "ship-change", "args": [<--message>]}', found["text"])
+        self.assertIn('playbook "ship-change" covers the rest of this. Run playbook_run {"name": "ship-change", "args": [<--message>]} for this instead of doing it by hand; ', found["text"])
         self.assertIn("--message: commit message", found["text"])
         self.assertTrue(found["text"].startswith("<system-reminder>") and found["text"].endswith("</system-reminder>"))
 
@@ -94,7 +94,7 @@ class DecideTest(Home):
 
     def test_the_offer_for_a_playbook_without_a_script_says_to_read_its_steps(self):
         playbook.save(ship(source="owner", args=[]))
-        self.assertIn('read its steps with playbook_find {"query": "ship-change"}', playbook.decide(LADDER)["text"])
+        self.assertIn('Read its steps with playbook_find {"query": "ship-change"}', playbook.decide(LADDER)["text"])
 
 
 class WordsTest(Home):
@@ -105,7 +105,7 @@ class WordsTest(Home):
         self.assertTrue(note.startswith('<system-reminder>\nPlaybook playbook "weekly-report" matches this request'))
         self.assertTrue(note.endswith("</system-reminder>"))
         self.assertLessEqual(len(note), playbook.NOTE_LIMIT)
-        self.assertIn('call the tool `playbook_run` with name "weekly-report"', note)
+        self.assertIn('Run playbook_run {"name": "weekly-report", "args": []} for this instead of doing it by hand.', note)
 
 
 if __name__ == "__main__":

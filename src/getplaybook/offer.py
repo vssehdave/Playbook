@@ -48,19 +48,22 @@ def find(request: str, project="", limit=5, agent_type=None) -> list:
     return [pb for _, pb in scored[:limit]]
 
 
+def _run_call(pb) -> str:
+    given = ", ".join(f"<{a['name']}>" for a in pb["args"])
+    return f'playbook_run {{"name": "{pb["name"]}", "args": [{given}]}}'
+
+
 def _script_line(pb) -> str:
     if runnable(pb):
-        names_ = ", ".join(f"<{a['name']}>" for a in pb["args"])
-        return f'Script: call the tool `playbook_run` with name "{pb["name"]}" and args [{names_}]\n'
+        return f'Run {_run_call(pb)} for this instead of doing it by hand.\n'
     return f'Script (draft, not yet approved): run `python "{script_path(pb["name"])}" --help` with Bash\n'
 
 
 def _delegate_line(pb) -> str:
     agent = pb["delegate"]["agent"]
     if runnable(pb):
-        names_ = ", ".join(f"<{a['name']}>" for a in pb["args"])
-        return (f'Delegate: call the tool `playbook_run` with name "{pb["name"]}" and args [{names_}]; it returns the exact '
-                f'call for the {agent} agent, which you send with the Agent tool as it is\n')
+        return (f'Run {_run_call(pb)} for this instead of doing it by hand; it returns the exact call for the {agent} agent, '
+                f'which you send with the Agent tool as it is\n')
     return f'Delegate (draft, not yet approved): the {agent} agent; it is not run until the owner approves {pb["name"]}\n'
 
 
@@ -145,12 +148,11 @@ def offer(pb) -> str:
     """The short note of a route offer: the playbook covers the rest of the work, and how to call it."""
     name = pb["name"]
     if runnable(pb) or pb["includes"]:
-        given = ", ".join("<" + a["name"] + ">" for a in pb["args"])
         spec = "".join(f"; {a['name']}: {a['help'][:80]}" for a in pb["args"][:6] if a["help"])
-        how = f'call playbook_run {{"name": "{name}", "args": [{given}]}}{spec}'
+        how = f'Run {_run_call(pb)} for this instead of doing it by hand{spec}.'
     else:
-        how = f'read its steps with playbook_find {{"query": "{name}"}}'
-    return (f'<system-reminder>\n{config.NAME}: playbook "{name}" covers the rest of this: {_untag(how)}\n'
+        how = f'Read its steps with playbook_find {{"query": "{name}"}}.'
+    return (f'<system-reminder>\n{config.NAME}: playbook "{name}" covers the rest of this. {_untag(how)}\n'
             + _ENFORCED.format(name=name) * (mode(pb) == "enforce") + "</system-reminder>")
 
 
