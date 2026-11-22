@@ -60,17 +60,14 @@ back into Almanac.
 
 ## Open work, in order
 
-1. Confirm in a real session that a `PostToolUse` hook's `additionalContext`
-   reaches the model, and check the hook payload fields (`session_id`,
-   `transcript_path`, `cwd`, `tool_name`, `agent_id`, `agent_type`). If
-   `PostToolUse` cannot add context, only the `UserPromptSubmit` path works.
-2. Confirm in a real session that the `PreToolUse` deny of `enforce`
-   reaches the model and that the payload carries `tool_use_id` and, in a
-   sub-agent, `agent_id`; and that `auto` in the `UserPromptSubmit` hook
-   gives the result.
-3. Live A/B: about 5 tasks x 3 runs, with and without playbooks, main thread
+Verified live (sandbox, 2026-11-21): the `UserPromptSubmit` note reaches
+the model, and an `enforce` deny from `PreToolUse` reaches it and makes it
+call `playbook_run`. The sandbox drops `PLAYBOOK_HOME`, so its hooks use
+`~/.playbook`.
+
+1. Not yet seen live: a `PostToolUse` route offer, `auto` in the
+   `UserPromptSubmit` hook, and a deny inside a sub-agent.
+2. Live A/B: about 5 tasks x 3 runs, with and without playbooks, main thread
    and one sub-agent type; measure tokens, tool calls, time, success, and
    the offer-to-take rate in the logs. Estimates to test: about 7% of
    main-thread cost, more for sub-agents (test-run and poll chains).
-4. Redaction here is a smaller pattern set than Almanac's.
-5. CI covers Ubuntu, which has not been run locally.
