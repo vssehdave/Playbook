@@ -139,7 +139,7 @@ def run(name, args, cwd=None, timeout=None, start=None) -> str:
     # shortcut: only the named playbook's delegate is used, the delegates of included playbooks are ignored; change when a
     # playbook should be able to hand off through the playbooks it includes.
     call = _agent_call(named, args) if delegate else ""  # filled first, so a missing argument stops the run before any script
-    if delegate and not steps and not runnable(named):
+    if delegate and not runnable(named):  # checked even when included scripts would run first: a draft delegate is never handed out
         why = "its delegate changed after approval" if named["hash"] else "its delegate is a draft"
         return _failure(name, [name], 0, "not run", f"Not run: {why}. The owner approves it with `{config.CLI} approve {name}`.", args, False)
     first = 0

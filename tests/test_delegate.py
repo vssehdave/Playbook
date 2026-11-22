@@ -101,6 +101,16 @@ class DelegateTest(Home):
         playbook.approve("weekly-report")
         self.assertNotIn("AGENT CALL", playbook.run("weekly-report", []))
 
+    def test_a_draft_delegate_after_included_scripts_is_not_handed_out(self):
+        playbook.save(make("inner-build", triggers=["inner build"]), script=SCRIPT)
+        playbook.approve("inner-build")
+        playbook.save(delegating(includes=["inner-build"]))  # no script of its own; its delegate is a draft
+        report = playbook.run("review-branch", ["a", "b"])
+        self.assertTrue(report.startswith("RESULT: fail"))
+        self.assertNotIn("AGENT CALL", report)
+        playbook.approve("review-branch")
+        self.assertEqual(agent_call(playbook.run("review-branch", ["a", "b"]))["subagent_type"], "crew:code-reviewer")
+
     def test_auto_is_refused_for_a_delegate(self):
         playbook.save(delegating())
         with self.assertRaises(ValueError):

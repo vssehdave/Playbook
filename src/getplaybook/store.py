@@ -180,7 +180,8 @@ def approval_hash(pb) -> str:
         return digest
     raw = _read(script_path(pb["name"]), SCRIPT_LIMIT) if pb["script"] else None
     canon = json.dumps(pb["delegate"], sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    return hashlib.sha256((raw or b"") + canon).hexdigest()
+    raw = raw or b""
+    return hashlib.sha256(str(len(raw)).encode() + b"\n" + raw + canon).hexdigest()  # the length fixes where the script ends
 
 
 def runnable(pb) -> bool:
