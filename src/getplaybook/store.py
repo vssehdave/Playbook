@@ -20,6 +20,8 @@ from .steps import prose_phases
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]{1,48}$")
 WORD = re.compile(r"[a-z0-9]+")
 AGENT = re.compile(r"^[\w:.-]*$")
+DELEGATE_AGENT = re.compile(r"^[A-Za-z0-9_:-]{1,60}$")
+PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_-]*)\}")  # the only braces that count in a delegate prompt
 JSON_LIMIT = 20 * 1024
 SCRIPT_LIMIT = 200 * 1024
 MAX_STEPS = 30
@@ -75,6 +77,20 @@ def _list(data, key, count, size, required=False) -> list:
     return out
 
 
+def _delegate(data, arg_names):
+    """The ready-made sub-agent call {agent, prompt}, or None. Every {placeholder} in the prompt must be one of the args."""
+    given = data.get("delegate")
+    if given is None:
+        return None
+    if not isinstance(given, dict) or not isinstance(given.get("agent"), str) or not DELEGATE_AGENT.match(given["agent"]):
+        raise ValueError("delegate is {agent, prompt}; agent is a plain agent name of 1 to 60 characters (letters, digits, - _ :)")
+    prompt = _text(given, "prompt", 1, 4000)
+    unknown = sorted(set(PLACEHOLDER.findall(prompt)) - set(arg_names))
+    if unknown:
+        raise ValueError(f"delegate prompt uses {{{unknown[0]}}}, which is not one of the args")
+    return {"agent": given["agent"], "prompt": prompt}
+
+
 def clean(data) -> dict:
     """The playbook as it is stored, or ValueError. Types and sizes are checked here, on every load and save."""
     if not isinstance(data, dict):
@@ -106,7 +122,8 @@ def clean(data) -> dict:
            "script": script, "args": [{"name": a["name"], "help": a.get("help", "")} for a in args],
            "auto": auto, "status": status, "hash": _text(data, "hash", 0, 64, required=False), "uses": uses,
            "created": _text(data, "created", 0, 32, required=False), "source": source,
-           "route": _list(data, "route", 20, 40), "agent_type": agent_type, "includes": includes}
+           "route": _list(data, "route", 20, 40), "agent_type": agent_type, "includes": includes,
+           "delegate": _delegate(data, [a["name"] for a in args])}
     if not valid_name(out["name"]):
         raise ValueError("bad name")
     return out
@@ -155,9 +172,21 @@ def script_hash(name) -> str:
     return hashlib.sha256(raw).hexdigest() if raw is not None else ""
 
 
+def approval_hash(pb) -> str:
+    """What the owner approves: the script's hash, as it always was, when there is no delegate; with one, a hash over
+    the script's bytes (if any) and the delegate, so editing either sends the playbook back to draft."""
+    digest = script_hash(pb["name"])
+    if not pb.get("delegate"):
+        return digest
+    raw = _read(script_path(pb["name"]), SCRIPT_LIMIT) if pb["script"] else None
+    canon = json.dumps(pb["delegate"], sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    raw = raw or b""
+    return hashlib.sha256(str(len(raw)).encode() + b"\n" + raw + canon).hexdigest()  # the length fixes where the script ends
+
+
 def runnable(pb) -> bool:
-    """An approved script whose text still matches the approved hash."""
-    return bool(pb["script"] and pb["status"] == "approved" and pb["hash"] and pb["hash"] == script_hash(pb["name"]))
+    """An approved script or delegate whose text still matches the approved hash."""
+    return bool((pb["script"] or pb["delegate"]) and pb["status"] == "approved" and pb["hash"] and pb["hash"] == approval_hash(pb))
 
 
 def auto_file() -> Path:
@@ -235,8 +264,8 @@ def automatic(pb) -> bool:
 
 def shown_status(pb) -> str:
     """The status for `list` and `show`: a script edited after approval is a draft again, and only a live enforce or auto one says so."""
-    if pb["script"] and pb["status"] == "approved" and not runnable(pb):
-        return "draft (script changed)"
+    if (pb["script"] or pb["delegate"]) and pb["status"] == "approved" and not runnable(pb):
+        return "draft (changed)" if pb["delegate"] else "draft (script changed)"
     return pb["status"] + (f", {mode(pb)}" if mode(pb) != "suggest" else "")
 
 
@@ -280,9 +309,9 @@ def save(data, script=None):
         script_path(name).write_bytes(script.encode("utf-8"))
     elif not pb["script"] and script_path(name).exists():
         script_path(name).unlink()
-    if not pb["script"]:
+    if not pb["script"] and not pb["delegate"]:
         pb["status"] = "approved" if pb["source"] == "owner" else "draft"  # what a model or the miner wrote waits for the owner
-    elif old and old["status"] == "approved" and old["hash"] and old["hash"] == script_hash(name):
+    elif old and old["status"] == "approved" and old["hash"] and old["hash"] == approval_hash(pb):
         pb["status"], pb["hash"] = "approved", old["hash"]
     _write(pb)
     _auto_set(name)
@@ -299,6 +328,13 @@ def approve(name, mode="suggest", auto=False):
     pb = load(name)
     if pb is None:
         raise ValueError(f"no usable playbook called {name!r}")
+    if pb["delegate"] and mode == "auto":
+        raise ValueError(f"mode auto is refused: {name} hands work to a sub-agent, which a host cannot start before the model sees a request")
+    if not pb["script"] and pb["delegate"]:
+        pb["status"], pb["auto"], pb["hash"] = "approved", False, approval_hash(pb)
+        _write(pb)
+        _auto_set(name, pb["hash"] if mode == "enforce" else None, mode)
+        return pb["hash"], ""
     if not pb["script"]:
         if mode == "auto" or (mode == "enforce" and not pb["includes"]):
             raise ValueError(f"mode {mode} is refused: {name} has no script" + (" and includes nothing to run" if mode == "enforce" else ""))
@@ -311,7 +347,7 @@ def approve(name, mode="suggest", auto=False):
     if mode == "auto" and not any(len(WORD.findall(t)) >= 2 for t in pb["triggers"]):
         raise ValueError(f"mode auto is refused: {name} has no trigger of two or more words, and one word is too little to start a script")
     raw = _read(script_path(name), SCRIPT_LIMIT)
-    pb["status"], pb["hash"], pb["auto"] = "approved", hashlib.sha256(raw).hexdigest(), mode == "auto"
+    pb["status"], pb["hash"], pb["auto"] = "approved", approval_hash(pb), mode == "auto"
     _write(pb)
     _auto_set(name, pb["hash"] if mode != "suggest" else None, mode)
     return pb["hash"], raw.decode("utf-8", "replace")
