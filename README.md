@@ -70,6 +70,22 @@ Settings, all optional, in `config.json`:
 `route` and `inject` turn the two kinds of offer off; `enforce` and `auto_run` turn those modes off; `transcript_dirs` adds Claude Code config folders to mine besides
 `~/.claude` and `$CLAUDE_CONFIG_DIR`; `skip_folders` lists parts of session folder names the miner leaves out.
 
+## Delegate playbooks
+
+A playbook can carry a ready-made sub-agent call, so Claude neither picks the agent nor writes the brief. Add `delegate` to
+`playbook.json`; `{name}` in the prompt is filled from the playbook's `args`, by position:
+
+```json
+{"name": "review-branch", "title": "Review a branch", "when": "The person asks for a review of a branch.",
+ "triggers": ["review branch"], "steps": ["Send the delegate call"], "args": [{"name": "branch", "help": "branch to review"}],
+ "delegate": {"agent": "crew:code-reviewer", "prompt": "Review the changes on {branch} against main. Report bugs only."}}
+```
+
+`playbook_run` runs the playbook's scripts first (if any), then ends the passing report with `AGENT CALL: {...}`, the exact
+Agent tool input to send. The approved hash covers the delegate, so editing it sends the playbook back to draft until
+`playbook approve`. Playbooks without a delegate keep the hash they had. `--mode auto` is refused for a delegate, and only
+the named playbook's delegate is used, not those of playbooks it includes.
+
 ## Safety
 
 - A playbook that Claude or the miner writes is a **draft**. Nothing is offered or run until you approve it.

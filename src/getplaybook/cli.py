@@ -122,6 +122,9 @@ def main(argv=None) -> int:
         print(f"Mode: {store.mode(pb)}")
         if pb["script"]:
             print(f"Script: {store.script_path(pb['name'])}  (hash {pb['hash'] or 'not approved'})")
+        if pb["delegate"]:
+            print(f"Delegate: agent {pb['delegate']['agent']}\nPrompt: {pb['delegate']['prompt']}"
+                  + ("" if pb["script"] else f"\nHash: {pb['hash'] or 'not approved'}"))
         return 0
     if args.cmd == "remove":
         store.remove(args.name)
@@ -138,6 +141,12 @@ def main(argv=None) -> int:
         return 2
     enforced = ("Mode enforce: while it is offered in a turn, a tool call that does a step of its route by hand is refused and Claude "
                 "is told to call playbook_run, until a run of it fails in that turn. Approve again without --mode to stop that.")
+    if not pb["script"] and pb["delegate"]:
+        print(f"Approved {args.name}. sha256 {digest}\nplaybook_run returns this call for the {pb['delegate']['agent']} agent:\n"
+              f"{pb['delegate']['prompt']}\nIf the delegate changes, it goes back to draft until you approve it again.")
+        if args.mode == "enforce":
+            print(enforced)
+        return 0
     if not pb["script"]:
         print(f"Approved {args.name}. It has no script; Claude is shown its steps when a request matches.")
         if args.mode == "enforce":

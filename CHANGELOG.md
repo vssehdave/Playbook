@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Delegate playbooks: `playbook.json` may hold `delegate: {agent, prompt}`, a ready-made sub-agent call. `playbook_run`
+  runs any scripts, then ends a passing report with `AGENT CALL: {...}` (the Agent tool input, with `{arg}` placeholders
+  filled by position) for Claude to send as it is. The approved hash covers the delegate (unchanged for playbooks without
+  one), `playbook_save` takes it, and `show`, the offer notes and the tool descriptions mention it.
 - Offer modes, chosen when approving: `playbook approve NAME --mode suggest|enforce|auto` (`--auto` stays as
   `--mode auto`). The mode is signed with the command line's key in `auto.json` together with the script's hash, so
   editing `playbook.json` or the entry cannot change it; entries written before modes still read as `auto`.

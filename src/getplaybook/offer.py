@@ -55,12 +55,21 @@ def _script_line(pb) -> str:
     return f'Script (draft, not yet approved): run `python "{script_path(pb["name"])}" --help` with Bash\n'
 
 
+def _delegate_line(pb) -> str:
+    agent = pb["delegate"]["agent"]
+    if runnable(pb):
+        names_ = ", ".join(f"<{a['name']}>" for a in pb["args"])
+        return (f'Delegate: call the tool `playbook_run` with name "{pb["name"]}" and args [{names_}]; it returns the exact '
+                f'call for the {agent} agent, which you send with the Agent tool as it is\n')
+    return f'Delegate (draft, not yet approved): the {agent} agent; it is not run until the owner approves {pb["name"]}\n'
+
+
 def full(pb) -> str:
     """The whole playbook as plain text, for a tool reply: nothing cut, no reminder tags."""
     lines = [f'{pb["name"]}: {pb["title"]} ({pb["status"]}, used {pb["uses"]}x)', pb["when"], "Steps:"]
     lines += [f"{i}. {step}" for i, step in enumerate(pb["steps"], 1)]
     lines += [f'{label}: {", ".join(pb[key])}' for label, key in (("Skills", "skills"), ("Agents", "agents")) if pb[key]]
-    return "\n".join(lines + ([_script_line(pb).rstrip()] if pb["script"] else []))
+    return "\n".join(lines + ([_script_line(pb).rstrip()] if pb["script"] else []) + ([_delegate_line(pb).rstrip()] if pb["delegate"] else []))
 
 
 def _step_lines(pb, room) -> str:
@@ -121,6 +130,8 @@ def note(pb) -> str:
         extra.append(" ".join(f"{label}: {text[:300]}." for label, text in lists) + "\n")
     if pb["script"]:
         extra.append(_script_line(pb))
+    if pb["delegate"]:
+        extra.append(_delegate_line(pb))
     tail = ("Follow it unless this request differs. If you change the approach or finish a task that will come up again, "
             "record it with `playbook_save`.\n" + _ENFORCED.format(name=pb["name"]) * (mode(pb) == "enforce") + "</system-reminder>")
     fixed = head + "".join(extra) + tail

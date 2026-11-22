@@ -10,7 +10,7 @@ import threading
 from pathlib import Path
 
 from . import config
-from .store import automatic, load, runnable, script_path, valid_name
+from .store import PLACEHOLDER, automatic, load, runnable, script_path, valid_name
 
 RUN_TIMEOUT = 120  # seconds
 RUN_OUTPUT = 20000  # characters kept of each of stdout and stderr
@@ -111,6 +111,20 @@ def inner_names(name, depth=0) -> set:
     return set(pb["includes"]).union(*(inner_names(n, depth + 1) for n in pb["includes"]))
 
 
+def _agent_call(pb, args) -> str:
+    """The Agent tool input for the playbook's delegate, with the args filled in by position; ValueError when one is missing."""
+    names = [a["name"] for a in pb["args"]]
+    values = dict(zip(names, args))
+    used = PLACEHOLDER.findall(pb["delegate"]["prompt"])
+    missing = [n for n in names if n in used and n not in values]
+    if missing:
+        raise ValueError(f"{pb['name']} needs the argument {missing[0]!r} (args in order: {', '.join(names)})")
+    prompt = PLACEHOLDER.sub(lambda m: values[m.group(1)], pb["delegate"]["prompt"])
+    call = {"subagent_type": pb["delegate"]["agent"], "description": pb["title"][:60], "prompt": prompt}
+    return ("AGENT CALL: " + json.dumps(call, ensure_ascii=False)
+            + "\nSend that call with the Agent tool as it is; do not rewrite the prompt.")
+
+
 def run(name, args, cwd=None, timeout=None, start=None) -> str:
     """Run an approved playbook: its included playbooks in order, then its own script, stopping at the first failure.
     `start` (a step's name, or its number from 1) continues a run that stopped. Returns the report for Claude, which
@@ -118,8 +132,16 @@ def run(name, args, cwd=None, timeout=None, start=None) -> str:
     if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
         raise ValueError("args must be a list of strings")
     steps = plan(name) if valid_name(name) else []
-    if not steps:
+    named = load(name) if valid_name(name) else None
+    delegate = named["delegate"] if named else None
+    if not steps and not delegate:
         raise ValueError(f"no playbook called {name!r} has a script")
+    # shortcut: only the named playbook's delegate is used, the delegates of included playbooks are ignored; change when a
+    # playbook should be able to hand off through the playbooks it includes.
+    call = _agent_call(named, args) if delegate else ""  # filled first, so a missing argument stops the run before any script
+    if delegate and not steps and not runnable(named):
+        why = "its delegate changed after approval" if named["hash"] else "its delegate is a draft"
+        return _failure(name, [name], 0, "not run", f"Not run: {why}. The owner approves it with `{config.CLI} approve {name}`.", args, False)
     first = 0
     if start not in (None, ""):
         word = str(start).strip()
@@ -135,7 +157,8 @@ def run(name, args, cwd=None, timeout=None, start=None) -> str:
         if code != 0:
             return _failure(name, steps, place, head if code is None else f"exit {code}", _failing(out, err), args, many)
     ran = f"Steps run: {', '.join(steps[first:])}\n" if many else ""
-    return f"RESULT: pass\n{ran}--- stdout ---\n{_tail(out, PASS_OUTPUT)}"
+    report = f"RESULT: pass\n{ran}" + (f"--- stdout ---\n{_tail(out, PASS_OUTPUT)}" if steps[first:] else "")
+    return report + (("\n" if steps[first:] else "") + call if call else "")
 
 
 def _failure(name, steps, place, why, body, args, many) -> str:

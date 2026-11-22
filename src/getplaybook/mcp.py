@@ -16,17 +16,21 @@ TOOLS = [
      "inputSchema": {"type": "object", "required": ["query"], "properties": {
          "query": {"type": "string", "description": "The request, or words from it"}}}},
     {"name": "playbook_save",
-     "description": "Record, or update, a playbook for a task that will come up again. A script is a draft until the "
+     "description": "Record, or update, a playbook for a task that will come up again. A script or delegate is a draft until the "
                     "person approves it with `playbook approve NAME`.",
      "inputSchema": {"type": "object", "required": ["playbook"], "properties": {
          "playbook": {"type": "object", "description": "name (lowercase, digits, hyphens), title, when, triggers (2 to 5 short phrases), "
                                                        "steps (ordered \"If X: do Y with Z\" lines, at most 30), skills, agents, "
-                                                       "args [{name, help}], project (optional)"},
+                                                       "args [{name, help}], project (optional), delegate (optional {agent, prompt}: "
+                                                       "a ready-made sub-agent call; agent is a plain agent name, prompt may use {argname} placeholders "
+                                                       "for the args, filled by position)"},
          "script": {"type": "string", "description": "The text of run.py, if the job can be done with no model"}}}},
     {"name": "playbook_run",
      "description": "Run an approved playbook (the playbooks it includes first, then its own script) with no model in the loop. "
                     "Returns `RESULT: pass`, or `RESULT: fail (exit N)` with only what failed, and for a playbook of several steps "
-                    "`RESUME: playbook_run {...}`: fix the cause, then call that to go on from the failed step. A draft script is not run.",
+                    "`RESUME: playbook_run {...}`: fix the cause, then call that to go on from the failed step. A draft script is not run. "
+                    "A playbook with a delegate ends a passing report with `AGENT CALL: {...}`: send exactly that to the Agent tool, "
+                    "without rewriting the prompt.",
      "inputSchema": {"type": "object", "required": ["name"], "properties": {
          "name": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}},
          "from": {"type": "string", "description": "A step to start at (its name, or its number from 1), to go on after a failure"}}}},
