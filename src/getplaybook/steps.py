@@ -65,12 +65,15 @@ def _without_here_documents(text) -> str:
         pos = end.end()
 
 
+_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 RTK_OWN = {"gain", "verify", "discover", "init", "config", "hook", "--version", "--help"}  # rtk's own commands, not a wrapped one
 
 
 def _step(piece, skip=NOISE) -> str:
     """The program and at most two plain words after it, or "" when the piece is no command. Never an argument's text."""
     tokens = piece.split()
+    while tokens and _ASSIGN.match(tokens[0]):  # PYTHONPATH=src python ...: the program comes after the variables
+        tokens = tokens[1:]
     cmd = re.split(r"[\\/]", tokens[0])[-1] if tokens else ""  # .venv/Scripts/python.exe is python
     cmd = cmd[:-4] if cmd.lower().endswith(".exe") else cmd
     if cmd == "rtk" and len(tokens) > 1 and tokens[1] not in RTK_OWN:  # rtk wraps a command: the command is the step

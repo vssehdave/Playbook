@@ -247,6 +247,10 @@ class StepsTest(unittest.TestCase):
         self.assertEqual(mine.steps(block("Bash", command="rtk.exe git log -3")), ["Bash: git log"])
         self.assertEqual(mine.steps(block("Bash", command="rtk gain")), ["Bash: rtk gain"])  # rtk's own command stays
 
+    def test_variables_before_a_command_are_not_the_step(self):
+        self.assertEqual(mine.steps(block("Bash", command="PYTHONPATH=src python -m unittest discover -s tests")), ["Bash: python -m unittest"])
+        self.assertEqual(mine.steps(block("Bash", command="A=1 B=2 npm test")), ["Bash: npm test"])
+
     def test_a_secret_in_the_first_words_is_removed(self):
         (step,) = mine.steps(block("Bash", command=f"deploy {SECRET} --now"))
         self.assertNotIn(SECRET, step)
