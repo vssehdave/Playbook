@@ -23,7 +23,7 @@ TOOLS = [
                                                        "steps (ordered \"If X: do Y with Z\" lines, at most 30), skills, agents, "
                                                        "args [{name, help}], project (optional), delegate (optional {agent, prompt}: "
                                                        "a ready-made sub-agent call; agent is a plain agent name, prompt may use {argname} placeholders "
-                                                       "for the args, filled by position)"},
+                                                       "for the args, filled by position; route defaults to [\"delegate\"] so enforce can refuse a hand-written Agent call)"},
          "script": {"type": "string", "description": "The text of run.py, if the job can be done with no model"}}}},
     {"name": "playbook_run",
      "description": "Run an approved playbook (the playbooks it includes first, then its own script) with no model in the loop. "

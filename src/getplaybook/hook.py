@@ -14,7 +14,7 @@ import re
 import time
 from pathlib import Path
 
-from . import config, offer, run as runner, store, thread
+from . import config, log, offer, run as runner, store, thread
 from .steps import block_phases
 from .text import CONTINUE, handwritten, person_text
 
@@ -126,6 +126,8 @@ def _thread(payload):
 def post_tool_use(payload) -> str:
     """An offer for the playbook two of three signals say covers the rest of this turn, once per playbook per turn."""
     cfg = config.settings()
+    if _is_run(payload) and cfg["enabled"]:
+        _log_run("pass" if _body(payload.get("tool_response")).lstrip().startswith("RESULT: pass") else "fail", payload)
     if config.hosted() or not (cfg["enabled"] and cfg["route"]):
         return ""
     found = _thread(payload)
@@ -153,6 +155,7 @@ def post_tool_use(payload) -> str:
     kept = offer.decide([m for m in after if m.get("role") == "assistant"], project_names(cwd), kind, offered, _called(after), cwd, ahead)
     if kept:
         offered.add(kept["name"])
+        log.write("offer", payload, kept["name"], store.mode(store.load(kept["name"])))
     mine["offered"] = sorted(n for n in offered if n)
     mine["t"] = time.time()
     _save(key, mine)
@@ -177,6 +180,7 @@ def user_prompt_submit(payload) -> str:
     if not best:
         return ""
     chosen = store.bump(best[0]["name"]) or best[0]
+    log.write("offer", payload, chosen["name"], store.mode(chosen))
     state = _load()
     key = f"{payload.get('session_id') or ''}:main"
     typed = _digest(person_text({"role": "user", "content": prompt}))
@@ -191,26 +195,67 @@ def user_prompt_submit(payload) -> str:
     return _out("UserPromptSubmit", offer.note(chosen))
 
 
-def _failed(messages) -> set:
-    """The playbooks run with playbook_run in these messages whose result did not pass (a failure, an error, a refusal)."""
+def _body(content) -> str:
+    """The text of a tool result or response: a string, a list of text blocks, or a dict holding either."""
+    if isinstance(content, dict):
+        content = content.get("content", content.get("text", ""))
+    return content if isinstance(content, str) else "\n".join(str(x.get("text") or "") for x in (content if isinstance(content, list) else ()) if isinstance(x, dict))
+
+
+def _is_run(payload) -> bool:
+    return str(payload.get("tool_name")).endswith("playbook_run")
+
+
+def _run_name(payload) -> str:
+    given = payload.get("tool_input")
+    return str(given.get("name") or "") if isinstance(given, dict) else ""
+
+
+def _log_run(event, payload):
+    name = _run_name(payload)
+    pb = store.load(name) if store.valid_name(name) else None
+    log.write(event, payload, name, store.mode(pb) if pb else "")
+
+
+def _runs(messages):
+    """(playbook name, result text, True when the result was an error) for each playbook_run in these messages that has a result."""
     ran = {b.get("id"): str(b["input"].get("name")) for m in messages if m.get("role") == "assistant" and isinstance(m.get("content"), list)
            for b in m["content"] if isinstance(b, dict) and b.get("type") == "tool_use" and str(b.get("name")).endswith("playbook_run")
            and isinstance(b.get("input"), dict)}
-    out = set()
     for m in messages:
         for b in m.get("content") if m.get("role") == "user" and isinstance(m.get("content"), list) else ():
             if isinstance(b, dict) and b.get("type") == "tool_result" and b.get("tool_use_id") in ran:
-                body = b.get("content")
-                text = body if isinstance(body, str) else " ".join(str(x.get("text") or "") for x in body or () if isinstance(x, dict))
-                if b.get("is_error") or not text.lstrip().startswith("RESULT: pass"):
-                    out.add(ran[b["tool_use_id"]])
+                yield ran[b["tool_use_id"]], _body(b.get("content")), bool(b.get("is_error"))
+
+
+def _failed(messages) -> set:
+    """The playbooks run with playbook_run in these messages whose result did not pass (a failure, an error, a refusal)."""
+    return {name for name, text, error in _runs(messages) if error or not text.lstrip().startswith("RESULT: pass")}
+
+
+def _agent_calls(messages, name) -> list:
+    """The AGENT CALLs (dicts) that passing runs of the playbook returned in these messages."""
+    out = []
+    for ran, text, error in _runs(messages):
+        for row in text.splitlines() if ran == name and not error and text.lstrip().startswith("RESULT: pass") else ():
+            if row.startswith("AGENT CALL: "):
+                try:
+                    call = json.loads(row[len("AGENT CALL: "):])
+                except ValueError:
+                    continue
+                if isinstance(call, dict):
+                    out.append(call)
     return out
 
 
-def _deny(pb) -> str:
-    given = ", ".join("<" + a["name"] + ">" for a in pb["args"])
-    why = (f'Playbook {pb["name"]} is set to enforce: call playbook_run {{"name": "{pb["name"]}", "args": [{given}]}} instead of '
-           f"doing this step by hand. If that run fails, the steps are yours again for the rest of this turn.")
+def _deny(pb, payload, calls=()) -> str:
+    log.write("deny", payload, pb["name"], store.mode(pb))
+    if calls:  # the run passed: the Agent call has to be the one it returned
+        why = f'Playbook {pb["name"]} returned the Agent call to send: send that AGENT CALL unchanged (same subagent_type and prompt).'
+    else:
+        given = ", ".join("<" + a["name"] + ">" for a in pb["args"])
+        why = (f'Playbook {pb["name"]} is set to enforce: call playbook_run {{"name": "{pb["name"]}", "args": [{given}]}} instead of '
+               f"doing this step by hand. If that run fails, the steps are yours again for the rest of this turn.")
     return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": why}})
 
 
@@ -235,6 +280,8 @@ def pre_tool_use(payload) -> str:
     cfg = config.settings()
     name, given = payload.get("tool_name"), payload.get("tool_input")
     hosted = config.hosted()
+    if _is_run(payload) and cfg["enabled"]:
+        _log_run("take", payload)
     if not (cfg["enabled"] and cfg["enforce"]) or not isinstance(name, str) or "playbook_" in name:
         return ""
     phases = set(block_phases({"type": "tool_use", "name": name, "input": given if isinstance(given, dict) else {}})) - FREE
@@ -254,9 +301,13 @@ def pre_tool_use(payload) -> str:
         if mine.get("prompt") == _digest(typed) and isinstance(mine.get("word"), str):
             names.add(mine["word"])
     names -= _failed(messages[start + 1:])
+    sent = given if isinstance(given, dict) else {}
     for pb in filter(None, (store.load(n) for n in sorted(names) if store.valid_name(n))):
         if store.mode(pb) == "enforce" and pb["agent_type"] == kind and phases & set(store.route_of(pb)):
-            return _deny(pb)
+            calls = _agent_calls(messages[start + 1:], pb["name"]) if pb["delegate"] and "delegate" in phases else []
+            if any(c.get("subagent_type") == sent.get("subagent_type") and c.get("prompt") == sent.get("prompt") for c in calls):
+                continue  # the call the delegate playbook returned, sent unchanged
+            return _deny(pb, payload, calls)
     return ""
 
 

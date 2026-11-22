@@ -299,6 +299,8 @@ def save(data, script=None):
     old = load(name)
     if script is not None and (not isinstance(script, str) or len(script.encode("utf-8")) > SCRIPT_LIMIT):
         raise ValueError(f"script must be text of at most {SCRIPT_LIMIT} bytes")
+    if data.get("delegate") and not data.get("route"):  # enforce refuses an Agent call only when `delegate` is on the route
+        data = dict(data, route=["delegate"])
     wants = script is not None or (data.get("script") is not False and old is not None and old["script"])
     pb = clean(dict(data, script=bool(wants), status="draft", hash="", auto=False, uses=old["uses"] if old else 0,
                     created=old["created"] if old else time.strftime("%Y-%m-%d")))

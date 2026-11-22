@@ -357,7 +357,7 @@ class ToolTest(Home):
         self.assertGreater(len(full), playbook.NOTE_LIMIT)
         self.assertIn("Script (draft, not yet approved)", full)
         playbook.approve("weekly-report")
-        self.assertIn('call the tool `playbook_run` with name "weekly-report"', self.tool("playbook_find", query="weekly-report")[0])
+        self.assertIn('Run playbook_run {"name": "weekly-report"', self.tool("playbook_find", query="weekly-report")[0])
 
     def test_save_without_a_script_is_a_draft_until_approved(self):
         text, _ = self.tool("playbook_save", playbook=make())
