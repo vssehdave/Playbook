@@ -107,6 +107,10 @@ class WordsTest(Home):
         self.assertLessEqual(len(note), playbook.NOTE_LIMIT)
         self.assertIn('Run playbook_run {"name": "weekly-report", "args": []} for this instead of doing it by hand.', note)
 
+    def test_note_says_how_to_use_the_skills_and_agents(self):
+        playbook.save(make())
+        self.assertIn("Load these skills with the Skill tool: interfaces:better-layout. Delegate to these agent types: crew:code-reviewer.", playbook.note(playbook.load("weekly-report")))
+
 
 if __name__ == "__main__":
     unittest.main()

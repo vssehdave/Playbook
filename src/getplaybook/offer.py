@@ -128,7 +128,7 @@ def note(pb) -> str:
     head = (f'<system-reminder>\n{config.NAME} playbook "{pb["name"]}" matches this request ({pb["title"]}; '
             f'used {uses} time{"" if uses == 1 else "s"}). {pb["when"]}\nSteps:\n')
     extra = []
-    lists = [(label, ", ".join(pb[key])) for label, key in (("Skills", "skills"), ("Agents", "agents")) if pb[key]]
+    lists = [(label, ", ".join(pb[key])) for label, key in (("Load these skills with the Skill tool", "skills"), ("Delegate to these agent types", "agents")) if pb[key]]
     if lists:
         extra.append(" ".join(f"{label}: {text[:300]}." for label, text in lists) + "\n")
     if pb["script"]:
