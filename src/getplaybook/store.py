@@ -436,3 +436,16 @@ def dedupe(include_approved=False, out=print, dry_run=False) -> int:
             gone.add(other["name"])
             out(f"{'would merge' if dry_run else 'merged'} {other['name']} into {keep['name']}")
     return len(gone)
+
+
+def shared_steps(least=2) -> list:
+    """Steps (lowercased, whitespace collapsed) that appear in at least `least` different playbooks.
+    Returns (step, [playbook names]) tuples, most shared first. Writes nothing."""
+    found = {}
+    for pb in listing():
+        for step in pb["steps"]:
+            text = " ".join(str(step).lower().split())
+            if text:
+                found.setdefault(text, set()).add(pb["name"])
+    rows = [(text, sorted(names_)) for text, names_ in found.items() if len(names_) >= least]
+    return sorted(rows, key=lambda row: (-len(row[1]), row[0]))

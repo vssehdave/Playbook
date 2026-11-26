@@ -226,7 +226,7 @@ class HookTest(Home):
         self.assertEqual(rows[0]["mode"], "enforce")
         text = (Path(self.home) / "log.jsonl").read_text(encoding="utf-8")
         self.assertFalse(any(x in text for x in ("secret", "committing", "please")))
-        self.assertEqual(log.stats(), [f"{'ship-change':<28} offers 1  takes 1  denies 1  passes 1  fails 0"])
+        self.assertEqual(log.stats(), [f"{'ship-change':<28} offers 1  takes 1  denies 1  passes 1  fails 0  take rate 100%"])
 
     def test_enforce_works_under_a_host_from_the_transcript_alone(self):
         playbook.approve("ship-change", mode="enforce")

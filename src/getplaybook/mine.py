@@ -80,17 +80,33 @@ def _typed(d):
     return text if text and not text.startswith("<task-notification") else ""
 
 
-def _end(turn, out):
-    if turn and len(turn["tools"]) >= MIN_TOOLS:
+_REVERT = re.compile(r"git (checkout --|restore|reset --hard)")
+_NO = re.compile(r"(no|stop|don't|wrong|that's not|undo)\b")
+
+
+def corrections(turns) -> dict:
+    """Playbook name -> how many times the work after it was undone or the person's next message began by refusing it.
+    Names and counts only; the typed text is read, never kept. Pass turns read with short=True."""
+    out = Counter()
+    for i, t in enumerate(turns):
+        nxt = turns[i + 1]["text"].strip().lower() if i + 1 < len(turns) and turns[i + 1]["session"] == t["session"] else ""
+        if t.get("reverts") or _NO.match(nxt):
+            out.update(set(t.get("playbooks", ())))
+    return dict(out)
+
+
+def _end(turn, out, short=False):
+    if turn and (short or len(turn["tools"]) >= MIN_TOOLS):
         turn["chains"] = chains(turn.pop("route"))
         turn["requests"] = len(turn["usage"])
         turn["tokens"] = sum(turn.pop("usage").values())
         out.append(turn)
 
 
-def read_file(path, session_folder, cutoff_iso, agent_type=None) -> list:
+def read_file(path, session_folder, cutoff_iso, agent_type=None, short=False) -> list:
     """The typed turns of one session file that were followed by at least MIN_TOOLS tool calls. A sub-agent's file
-    (`agent_type` given) is all sidechain lines, and its one typed turn is the task its parent gave it."""
+    (`agent_type` given) is all sidechain lines, and its one typed turn is the task its parent gave it. `short` keeps the
+    turns with fewer tool calls too, for `corrections`."""
     out, turn = [], None
     try:
         handle = open(path, encoding="utf-8", errors="replace")
@@ -116,7 +132,7 @@ def read_file(path, session_folder, cutoff_iso, agent_type=None) -> list:
                 text = _typed(d)
                 if text is None:
                     continue
-                _end(turn, out)
+                _end(turn, out, short)
                 stamp = d.get("timestamp")
                 if not text or (isinstance(stamp, str) and stamp < cutoff_iso):
                     turn = None
@@ -125,7 +141,7 @@ def read_file(path, session_folder, cutoff_iso, agent_type=None) -> list:
                 parts = [p for p in re.split(r"[\\/]+", cwd) if p]
                 turn = {"text": text[:TEXT_LIMIT], "session": str(d.get("sessionId") or Path(path).stem), "at": str(stamp),
                         "project": "/".join(parts[-2:]) or session_folder, "tools": [], "steps": [], "skills": [], "agents": [], "usage": {}, "route": [],
-                        "agent_type": agent_type or ""}
+                        "agent_type": agent_type or "", "playbooks": [], "reverts": False}
                 continue
             if turn is None or not isinstance(content, list):
                 continue
@@ -135,6 +151,11 @@ def read_file(path, session_folder, cutoff_iso, agent_type=None) -> list:
                     turn["tools"].append(sig)
                     turn["steps"] += steps(block)
                     turn["route"] += block_phases(block)
+                    inp = block.get("input") if isinstance(block.get("input"), dict) else {}
+                    if str(block.get("name")).endswith(("playbook_run", "playbook_find")) and isinstance(inp.get("name"), str):
+                        turn["playbooks"].append(inp["name"])
+                    if block.get("name") == "Bash" and _REVERT.search(str(inp.get("command"))):
+                        turn["reverts"] = True
                     if sig.startswith("Skill: "):
                         turn["skills"].append(sig[7:])
                     elif sig.startswith("Agent: "):
@@ -145,7 +166,7 @@ def read_file(path, session_folder, cutoff_iso, agent_type=None) -> list:
                             if type(v := usage.get(k)) is int)
                 key = str(d.get("requestId") or msg.get("id") or d.get("uuid"))
                 turn["usage"][key] = max(total, turn["usage"].get(key, 0))
-    _end(turn, out)
+    _end(turn, out, short)
     return out
 
 
@@ -159,7 +180,7 @@ def _agent_type(path) -> str:
     return kind if isinstance(kind, str) and 0 < len(kind) <= 40 and store.AGENT.match(kind) else ""
 
 
-def read_turns(days=30, cfg=None, dirs=None, now=None) -> list:
+def read_turns(days=30, cfg=None, dirs=None, now=None, short=False) -> list:
     now = time.time() if now is None else now
     since = now - days * 86400
     cutoff = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(since))
@@ -185,7 +206,7 @@ def read_turns(days=30, cfg=None, dirs=None, now=None) -> list:
                         continue
                 except OSError:
                     continue
-                for turn in read_file(path, folder.name, cutoff, kind):
+                for turn in read_file(path, folder.name, cutoff, kind, short):
                     if kind is not None:
                         turn["session"] = path.parent.parent.name  # a sub-agent's work belongs to the session that ran it
                     key = (turn["at"], turn["text"])  # a resumed or moved session is copied into another file, and keeps its time stamps

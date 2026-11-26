@@ -2,7 +2,7 @@
 import argparse
 import sys
 
-from . import config, hook, log, run, store
+from . import config, hook, log, mine, run, store
 
 USAGE = """playbook: recorded ways of doing repeated tasks, and their scripts
 
@@ -10,10 +10,12 @@ USAGE = """playbook: recorded ways of doing repeated tasks, and their scripts
   playbook list|show NAME|remove NAME|path
   playbook approve NAME [--mode suggest|enforce|auto]   approve it and choose how it is offered (--auto: --mode auto)
   playbook run NAME [ARGS...] [--from STEP]   run an approved playbook (its includes first), as the playbook_run tool does
-  playbook stats                              offers, takes, denies and run results per playbook, from the offer log
+  playbook stats                              offers, takes, denies and run results per playbook, from the offer log,
+                                              and how often work was corrected right after a playbook ran
   playbook mine [--days 30] [--min 3]         find tasks you repeat in past sessions, no model
   playbook compile [--top N] [--dry-run]      have one Claude Code session write the best repeat up as a draft playbook
   playbook dedupe [--include-approved] [--dry-run]   merge playbooks that do the same route into one
+  playbook dedupe --suggest-includes          list steps shared by several playbooks (writes nothing)
   playbook mcp                                the MCP server (playbook_find, playbook_run, playbook_save, playbook_dedupe)
   playbook hook post-tool-use|pre-tool-use|user-prompt-submit   a Claude Code hook: reads its JSON on stdin
   playbook work                               the background run: mine, then compile within the daily cap
@@ -44,6 +46,7 @@ def _parser():
     merging = sub.add_parser("dedupe")
     merging.add_argument("--include-approved", action="store_true", help="also merge approved playbooks")
     merging.add_argument("--dry-run", action="store_true", help="say what would be merged, change nothing")
+    merging.add_argument("--suggest-includes", action="store_true", help="list steps shared by several playbooks, change nothing")
     for name in ("show", "approve", "remove"):
         one = sub.add_parser(name)
         one.add_argument("name")
@@ -94,6 +97,12 @@ def main(argv=None) -> int:
         return build.compile_top(args.top, args.dry_run, out=_print)
     if args.cmd == "path":
         print(store.root())
+        return 0
+    if args.cmd == "dedupe" and args.suggest_includes:
+        shared = store.shared_steps(least=2)
+        for step, names in shared:
+            print(f"{step}  <- {', '.join(names)}")
+        print("these steps could become one shared playbook that the others include" if shared else "no shared steps")
         return 0
     if args.cmd == "dedupe":
         merged = store.dedupe(args.include_approved, out=_print, dry_run=args.dry_run)
