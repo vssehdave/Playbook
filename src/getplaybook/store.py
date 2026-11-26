@@ -382,6 +382,8 @@ def route_of(pb) -> list:
     """The phases of work a playbook's route goes through, in order: `route`, else the miner's `phases`."""
     out = []
     for phase in pb.get("route") or pb.get("phases") or ():
+        if phase == "delegate" and not pb.get("delegate"):
+            continue  # only a delegate playbook hands work to an Agent call
         if not out or out[-1] != phase:
             out.append(phase)
     return out

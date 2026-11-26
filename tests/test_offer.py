@@ -98,6 +98,12 @@ class DecideTest(Home):
 
 
 class WordsTest(Home):
+    def test_generic_triggers_never_match(self):
+        playbook.save(make(triggers=["continue working", "weekly report"]), script="print(1)\n")
+        playbook.approve("weekly-report")
+        self.assertEqual(playbook.find("please continue working on this"), [])
+        self.assertEqual([p["name"] for p in playbook.find("send the weekly report now")], ["weekly-report"])
+
     def test_note_names_the_tool_the_steps_and_stays_in_its_frame(self):
         playbook.save(make(), script="print(1)\n")
         playbook.approve("weekly-report")
@@ -106,6 +112,10 @@ class WordsTest(Home):
         self.assertTrue(note.endswith("</system-reminder>"))
         self.assertLessEqual(len(note), playbook.NOTE_LIMIT)
         self.assertIn('Run playbook_run {"name": "weekly-report", "args": []} for this instead of doing it by hand.', note)
+
+    def test_note_says_how_to_use_the_skills_and_agents(self):
+        playbook.save(make())
+        self.assertIn("Load these skills with the Skill tool: interfaces:better-layout. Delegate to these agent types: crew:code-reviewer.", playbook.note(playbook.load("weekly-report")))
 
 
 if __name__ == "__main__":

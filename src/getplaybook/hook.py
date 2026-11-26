@@ -233,6 +233,11 @@ def _failed(messages) -> set:
     return {name for name, text, error in _runs(messages) if error or not text.lstrip().startswith("RESULT: pass")}
 
 
+def _passed(messages) -> set:
+    """The playbooks run with playbook_run in these messages whose result passed."""
+    return {name for name, text, error in _runs(messages) if not error and text.lstrip().startswith("RESULT: pass")}
+
+
 def _agent_calls(messages, name) -> list:
     """The AGENT CALLs (dicts) that passing runs of the playbook returned in these messages."""
     out = []
@@ -276,7 +281,7 @@ def _offered_again(messages, start, kind, payload) -> set:
 
 def pre_tool_use(payload) -> str:
     """Refuse a tool call whose phase (test, commit, push ...) is on the route of a playbook offered this turn and set to enforce,
-    until a run of that playbook has not passed this turn. Reading, editing and the playbook tools themselves are never refused."""
+    until a run of that playbook has passed this turn. Reading, editing and the playbook tools themselves are never refused."""
     cfg = config.settings()
     name, given = payload.get("tool_name"), payload.get("tool_input")
     hosted = config.hosted()
@@ -301,9 +306,12 @@ def pre_tool_use(payload) -> str:
         if mine.get("prompt") == _digest(typed) and isinstance(mine.get("word"), str):
             names.add(mine["word"])
     names -= _failed(messages[start + 1:])
+    passed = _passed(messages[start + 1:])
     sent = given if isinstance(given, dict) else {}
     for pb in filter(None, (store.load(n) for n in sorted(names) if store.valid_name(n))):
         if store.mode(pb) == "enforce" and pb["agent_type"] == kind and phases & set(store.route_of(pb)):
+            if pb["name"] in passed and not pb["delegate"]:
+                continue  # its script ran and passed: the steps are done for this turn
             calls = _agent_calls(messages[start + 1:], pb["name"]) if pb["delegate"] and "delegate" in phases else []
             if any(c.get("subagent_type") == sent.get("subagent_type") and c.get("prompt") == sent.get("prompt") for c in calls):
                 continue  # the call the delegate playbook returned, sent unchanged

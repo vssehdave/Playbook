@@ -172,11 +172,30 @@ class HookTest(Home):
         self.transcript(*self.ladder())
         self.post()
         self.transcript(*self.ladder(), call, result("RESULT: pass\n--- stdout ---\nok"))
-        self.assertIn("deny", self.pre("git push"))
+        self.assertEqual(self.pre("git push"), "")  # a passing run releases the gate for the turn
         self.transcript(*self.ladder(), call, result("RESULT: fail (exit 1)\nboom"))
         self.assertEqual(self.pre("git push"), "")
         self.transcript(*self.ladder(), *self.ladder("Next one please", "u9"))  # a new turn: nothing offered in it yet
         self.assertEqual(self.pre("git push"), "")
+
+    def test_a_denied_step_is_allowed_after_a_passing_run(self):
+        playbook.approve("ship-change", mode="enforce")
+        call = line("assistant", [{"type": "tool_use", "id": "r1", "name": "mcp__playbook__playbook_run", "input": {"name": "ship-change"}}], "m3b", mid="m3")
+        done = line("user", [{"type": "tool_result", "tool_use_id": "r1", "content": "RESULT: pass\nok"}], "m3c")
+        self.transcript(*self.ladder())
+        self.post()
+        self.assertIn("deny", self.pre("git push"))
+        self.transcript(*self.ladder(), call, done)
+        self.assertEqual(self.pre("git push"), "")
+
+    def test_a_script_playbook_with_delegate_in_its_route_lets_agent_calls_through(self):
+        pb = ship(route=["test", "delegate", "commit"])
+        playbook.save(pb, script="print(1)\n")
+        playbook.approve("ship-change", mode="enforce")
+        self.transcript(*self.ladder())
+        self.post()
+        self.assertEqual(self.pre(tool_name="Agent", tool_input={"subagent_type": "explorer", "prompt": "look"}), "")
+        self.assertIn("deny", self.pre("git commit -m x"))
 
     def test_enforce_holds_for_a_playbook_offered_by_the_typed_words(self):
         playbook.approve("ship-change", mode="enforce")

@@ -20,17 +20,25 @@ AUTO_NOTE_LIMIT = 5000
 
 # ---- matching ----------------------------------------------------------------------------------
 
+GENERIC = frozenset("continue|continue working|keep going|go on|go ahead|carry on|proceed|next|next step|do it|yes|ok|okay|resume|continue please".split("|"))
+
+
+def _phrases(pb) -> list:
+    """The word lists of a playbook's triggers, leaving out generic phrases that say nothing about the task."""
+    words = (WORD.findall(t) for t in pb["triggers"])
+    return [w for w in words if w and " ".join(w) not in GENERIC]
+
+
 def score(pb, request: str) -> int:
     """Words of the triggers that hit: a trigger hits when every one of its words is in the request."""
     have = set(WORD.findall(request.lower()))
-    hits = (WORD.findall(t) for t in pb["triggers"])
-    return sum(len(w) for w in hits if w and have.issuperset(w))
+    return sum(len(w) for w in _phrases(pb) if have.issuperset(w))
 
 
 def strong(pb, request: str) -> bool:
     """A match good enough to start a script: every word of some trigger of two or more words is in the request."""
     have = set(WORD.findall(request.lower()))
-    return any(len(w) >= 2 and have.issuperset(w) for w in map(WORD.findall, pb["triggers"]))
+    return any(len(w) >= 2 and have.issuperset(w) for w in _phrases(pb))
 
 
 def _here(pb, project) -> bool:
@@ -128,7 +136,7 @@ def note(pb) -> str:
     head = (f'<system-reminder>\n{config.NAME} playbook "{pb["name"]}" matches this request ({pb["title"]}; '
             f'used {uses} time{"" if uses == 1 else "s"}). {pb["when"]}\nSteps:\n')
     extra = []
-    lists = [(label, ", ".join(pb[key])) for label, key in (("Skills", "skills"), ("Agents", "agents")) if pb[key]]
+    lists = [(label, ", ".join(pb[key])) for label, key in (("Load these skills with the Skill tool", "skills"), ("Delegate to these agent types", "agents")) if pb[key]]
     if lists:
         extra.append(" ".join(f"{label}: {text[:300]}." for label, text in lists) + "\n")
     if pb["script"]:
