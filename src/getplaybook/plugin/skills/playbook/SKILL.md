@@ -37,3 +37,16 @@ playbook with `playbook_save` once the task is done.
 When saved playbooks pile up that do the same job, call `playbook_dedupe` with
 `dry_run` true to see what it would merge, then without it to merge. Approved
 playbooks are left alone unless `include_approved` is true.
+
+# Learning from a failed or redone run
+
+When a playbook run failed, or the work had to be redone, call `playbook_find`
+first and update that playbook with `playbook_save`. Merge the lesson into the
+existing steps; never save a second playbook for the same job.
+
+Write the lesson as a step: "If <signal you can recognise>: <action>". Name the
+signal that shows the problem (an error text, an exit code, a missing file) and
+the step to take next. Do not tell the story of what happened.
+
+Prefer recording failures and corrections over successes: a step that worked
+is already in the playbook, a step that was missing is not.
