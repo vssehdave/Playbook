@@ -27,7 +27,8 @@ def write(event, payload, playbook, mode):
 
 
 def stats() -> list:
-    """Lines `name  offers N  takes N  denies N  passes N  fails N`, one per playbook in the log."""
+    """Lines `name  offers N  takes N  denies N  passes N  fails N`, one per playbook in the log. With offers, `  take rate NN%` follows
+    (takes/offers), plus ` LOW TAKE` when offered 5+ times and taken under a quarter of them."""
     counts = {}
     try:
         lines = _path().read_text(encoding="utf-8").splitlines()
@@ -39,5 +40,11 @@ def stats() -> list:
             counts.setdefault(row["playbook"], dict.fromkeys(EVENTS, 0))[row["event"]] += 1
         except (ValueError, KeyError, TypeError):
             continue
-    return [f"{name:<28} " + "  ".join(f"{LABELS[e]} {c[e]}" for e in EVENTS)
-            for name, c in sorted(counts.items())]
+    return [f"{name:<28} " + "  ".join(f"{LABELS[e]} {c[e]}" for e in EVENTS) + _rate(c) for name, c in sorted(counts.items())]
+
+
+def _rate(c) -> str:
+    if not c["offer"]:
+        return ""
+    low = c["offer"] >= 5 and c["take"] / c["offer"] < 0.25
+    return f"  take rate {c['take'] * 100 // c['offer']}%" + (" LOW TAKE" if low else "")
